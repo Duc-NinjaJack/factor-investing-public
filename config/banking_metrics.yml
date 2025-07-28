@@ -1,0 +1,92 @@
+# Configuration for Banking Sector Specific Metrics
+# NOTE: Data fetching requires care:
+# 1. Query fundamental_values using GROUP BY ticker, item_id, year, quarter with MAX(value) to handle potential duplicate zero entries.
+# 2. Filter fs_mappings by relevant statement_type ('BS', 'PL') BEFORE merging with fundamental_values to handle item_id reuse.
+# 3. P&L items (e.g., net_profit_after_tax) are typically reported quarterly and need summation for annual figures.
+
+banking:
+  return_on_assets:
+    # NOTE: item_id 1 (avg_total_assets) is reused (see NIM). Ensure filtering by statement_type='BS'.
+    # NOTE: item_id 13 (net_profit_after_tax) requires summing quarterly values for annual figure.
+    formula: "( {{net_profit_after_tax}} / {{avg_total_assets}} ) * 100"
+    item_ids:
+      net_profit_after_tax: 13
+      avg_total_assets: 1 # Represents 'TOTAL ASSETS' (BS)
+    english_name: "Return on Assets (ROA)"
+
+  return_on_equity:
+    # NOTE: Calculation requires specific handling identified in fundamental_data_exploration.ipynb:
+    # 1. net_profit_after_tax (item_id 13): Sum quarterly values to get annual profit.
+    # 2. year_end_equity (item_id 308): Use Q4 value. Formula requires AVERAGE of current and previous year-end equity.
+    formula: "( {{annual_net_profit_after_tax}} / {{average_year_end_equity}} ) * 100"
+    item_ids:
+      # Placeholder names reflect required calculation inputs, mapping to fundamental item IDs
+      annual_net_profit_after_tax: 13 # Represents quarterly 'Profit After Tax' (PL) - SUM quarterly values
+      year_end_equity: 308 # Represents 'VIII. Shareholders' Equity' (BS) - Use Q4 value, then AVERAGE (t, t-1)
+    english_name: "Return on Equity (ROE)"
+
+  loan_to_deposit_ratio:
+    formula: "( {{loans_to_customers}} / {{customer_deposits}} ) * 100"
+    item_ids:
+      loans_to_customers: 10701 # Represents 'I. Loans to customers' (BS)
+      customer_deposits: 303 # Represents 'III. Customer deposits' (BS)
+    english_name: "Loan-to-Deposit Ratio (LDR)"
+
+  net_interest_margin:
+    # NOTE: item_id 1 (net_interest_income) is reused (see ROA). Ensure filtering by statement_type='PL'. Requires summing quarterly values.
+    # NOTE: avg_earning_assets needs calculation from components (see fundamental_data_exploration.ipynb Cell 23 for candidates). item_id 10701 is a potential major component ('Loans to customers').
+    formula: "( {{annual_net_interest_income}} / {{avg_earning_assets}} ) * 100"
+    item_ids:
+      annual_net_interest_income: 1 # Represents 'Net interest income' (PL) - SUM quarterly values
+      # avg_earning_assets: Needs calculation - Define components and calculation logic
+    english_name: "Net Interest Margin (NIM)"
+    depends_on_calculated: ['avg_earning_assets'] # Indicate dependency on a calculated metric
+
+  cost_income_ratio:
+    # NOTE: Requires summing quarterly values for both components.
+    formula: "( {{annual_operating_expenses}} / {{annual_total_operating_income}} ) * 100"
+    item_ids:
+      annual_operating_expenses: 8 # Represents 'Operating Expenses' (PL) - SUM quarterly values
+      annual_total_operating_income: 9 # Represents 'Total Operating Income' (PL) - SUM quarterly values
+    english_name: "Cost-to-Income Ratio (CIR)"
+
+  capital_adequacy_ratio:
+    # NOTE: item_id 308 (tier_1_capital) is reused (see ROE). Ensure filtering by statement_type='BS'.
+    # NOTE: calculated_rwa components and risk weights need verification based on regulatory standards and data availability (see fundamental_data_exploration.ipynb Cell 23).
+    formula: "( {{tier_1_capital}} + {{tier_2_capital}} ) / {{calculated_rwa}} * 100"
+    item_ids:
+      tier_1_capital: 308 # Represents 'VIII. Shareholders' Equity' (BS) - Use Q4 value
+      tier_2_capital: 309 # Represents 'IX. Other equities and funds' (BS) - Use Q4 value
+    dynamic_calculations:
+      calculated_rwa:
+        # Components below are examples based on config, NEED VERIFICATION & potential adjustment
+        mapping:
+          government_bonds: {item_id: 105, risk_weight: 0.0} # 'V. Investment securities Held-to-maturity' ? Needs check
+          mortgages: {item_id: 10701, risk_weight: 0.5} # 'I. Loans to customers' - Too broad? Needs check
+          corporate_loans: {item_id: 10702, risk_weight: 1.0} # 'II. Loans to credit institutions' ? Needs check
+          cash: {item_id: 101, risk_weight: 0.0} # 'I. Cash' (BS)
+    english_name: "Capital Adequacy Ratio (CAR)"
+    depends_on_calculated: ['calculated_rwa'] # Indicate dependency
+
+  non_performing_loan_ratio:
+    # NOTE: Definition (e.g., Classified Loans / Gross Loans) and component item_ids require final review
+    # based on fundamental_data_exploration.ipynb Cell 23 findings and available data granularity.
+    # Example using Loan Loss Provisions as proxy numerator:
+    formula: "( {{loan_loss_provisions}} / {{gross_customer_loans}} ) * 100"
+    item_ids:
+       loan_loss_provisions: 2 # Placeholder: '2. Loan Loss Provisions' (PL/BS?) - NEEDS VERIFICATION, potentially use absolute value and sum quarterly if PL
+       gross_customer_loans: 10701 # Represents 'I. Loans to customers' (BS) - Use Q4 value
+    english_name: "Non-Performing Loan Ratio (NPL Ratio)"
+    # Add depends_on_calculated if components need pre-calculation
+
+# Placeholder for calculated metrics needed by ratios above (implement calculation logic elsewhere)
+calculated_metrics:
+  avg_earning_assets:
+    description: "Average Earning Assets - Calculation logic TBD based on component review."
+    formula: "Placeholder - Sum relevant asset components and average over period"
+  calculated_rwa:
+    description: "Calculated Risk-Weighted Assets - Calculation logic TBD based on component review and risk weights."
+    formula: "Placeholder - Sum(component * risk_weight)"
+
+# Add other sectors or general metrics below if needed
+# ...

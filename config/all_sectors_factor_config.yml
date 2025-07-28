@@ -1,0 +1,334 @@
+# Universal Factor Configuration for All Sectors
+# =============================================
+# This config defines factor signs and key metrics for each sector
+# Sign = -1 means "bad when high" (multiply by -1)
+# Sign = 1 means "good when high" (keep as is)
+
+# BANKING SECTOR
+banking:
+  remove_factors:
+    - CAR_IsProxy
+    - CAR_Proxy
+  
+  factor_signs:
+    # Bad when high (negative sign)
+    LDR: -1
+    NPL_Ratio: -1
+    LLR_Ratio: -1
+    Cost_Income_Ratio: -1
+    CIR: -1
+    Cost_of_Credit: -1
+    Provision_Credit_Loss_Rate: -1
+    
+    # Good when high (positive sign)
+    ROAA: 1
+    ROAE: 1
+    NIM: 1
+    Asset_Yield: 1
+    Net_Profit_YoY: 1
+    NII_YoY: 1
+    TOI_YoY: 1
+    Operating_Profit_YoY: 1
+    Deposits_YoY: 1
+    Gross_Loans_YoY: 1
+    Net_Profit_TTM_YoY: 1
+    Operating_Profit_TTM_YoY: 1
+    LLR_NPL_Coverage: 1
+    
+  key_factors:
+    - ROAA
+    - ROAE
+    - NIM
+    - NPL_Ratio
+    - Net_Profit_YoY
+    - NII_YoY
+    - LDR
+    - Cost_of_Credit
+
+# REAL ESTATE SECTOR
+real_estate:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    Debt_to_Equity: -1
+    Debt_to_Assets: -1
+    Interest_Coverage: -1  # When too low
+    DIO: -1  # Days inventory outstanding
+    DSO: -1  # Days sales outstanding
+    CCC: -1  # Cash conversion cycle
+    
+    # Good when high
+    ROIC: 1
+    ROAA: 1
+    ROAE: 1
+    GrossProfitMargin: 1
+    OperatingMargin: 1
+    NetRevenue_YoY: 1
+    NetProfit_YoY: 1
+    EBIT_YoY: 1
+    EBITDA_YoY: 1
+    Asset_Turnover: 1
+    Inventory_Turnover: 1
+    
+  key_factors:
+    - ROIC
+    - Debt_to_Equity
+    - NetRevenue_YoY
+    - GrossProfitMargin
+    - Inventory_Turnover
+    - EBIT_YoY
+
+# INSURANCE SECTOR
+insurance:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    Loss_Ratio: -1
+    Expense_Ratio: -1
+    Combined_Ratio: -1
+    Claims_YoY: -1
+    
+    # Good when high
+    ROAE: 1
+    ROAA: 1
+    Premium_YoY: 1
+    Investment_Yield: 1
+    Solvency_Ratio: 1
+    Net_Profit_YoY: 1
+    
+  key_factors:
+    - ROAE
+    - Combined_Ratio
+    - Premium_YoY
+    - Investment_Yield
+
+# SECURITIES SECTOR
+securities:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    Cost_Income_Ratio: -1
+    Leverage_Ratio: -1
+    
+    # Good when high
+    ROAE: 1
+    ROAA: 1
+    Brokerage_Revenue_YoY: 1
+    Trading_Income_YoY: 1
+    AUM_YoY: 1
+    Net_Profit_YoY: 1
+    
+  key_factors:
+    - ROAE
+    - Brokerage_Revenue_YoY
+    - Cost_Income_Ratio
+    - Trading_Income_YoY
+
+# FOOD & BEVERAGE SECTOR
+fooddrink:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    DIO: -1  # Days inventory outstanding
+    DSO: -1  # Days sales outstanding
+    Debt_to_Equity: -1
+    
+    # Good when high
+    ROIC: 1
+    ROAA: 1
+    GrossProfitMargin: 1
+    OperatingMargin: 1
+    NetRevenue_YoY: 1
+    EBITDA_YoY: 1
+    Asset_Turnover: 1
+    Inventory_Turnover: 1
+    
+  key_factors:
+    - ROIC
+    - GrossProfitMargin
+    - NetRevenue_YoY
+    - Inventory_Turnover
+
+# RETAIL SECTOR
+retail:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    DIO: -1
+    DSO: -1
+    Debt_to_Equity: -1
+    
+    # Good when high
+    ROIC: 1
+    ROAA: 1
+    SSSG: 1  # Same store sales growth
+    GrossProfitMargin: 1
+    NetRevenue_YoY: 1
+    Inventory_Turnover: 1
+    
+  key_factors:
+    - ROIC
+    - SSSG
+    - GrossProfitMargin
+    - Inventory_Turnover
+
+# TECHNOLOGY SECTOR (ICT)
+ict:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    DSO: -1
+    Debt_to_Equity: -1
+    
+    # Good when high
+    ROIC: 1
+    ROAE: 1
+    NetRevenue_YoY: 1
+    EBITDA_Margin: 1
+    R&D_to_Revenue: 1
+    Recurring_Revenue_Ratio: 1
+    
+  key_factors:
+    - ROIC
+    - NetRevenue_YoY
+    - EBITDA_Margin
+    - Recurring_Revenue_Ratio
+
+# MANUFACTURING SECTORS (General template)
+manufacturing_template: &manufacturing_template
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    DIO: -1
+    DPO: -1
+    CCC: -1
+    Debt_to_Equity: -1
+    
+    # Good when high
+    ROIC: 1
+    ROAA: 1
+    GrossProfitMargin: 1
+    Asset_Turnover: 1
+    NetRevenue_YoY: 1
+    EBITDA_YoY: 1
+    Working_Capital_Turnover: 1
+    
+  key_factors:
+    - ROIC
+    - GrossProfitMargin
+    - Asset_Turnover
+    - NetRevenue_YoY
+
+# Apply manufacturing template to specific sectors
+conmaterial:
+  <<: *manufacturing_template
+
+plastics:
+  <<: *manufacturing_template
+
+machinery:
+  <<: *manufacturing_template
+
+e_equipment:
+  <<: *manufacturing_template
+
+# UTILITIES SECTOR
+utilities:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    Debt_to_Equity: -1
+    Days_Receivables: -1
+    
+    # Good when high
+    ROAA: 1
+    ROAE: 1
+    EBITDA_Margin: 1
+    Asset_Utilization: 1
+    NetRevenue_YoY: 1
+    Dividend_Yield: 1
+    
+  key_factors:
+    - ROAE
+    - EBITDA_Margin
+    - Dividend_Yield
+    - Asset_Utilization
+
+# HEALTHCARE SECTOR
+healthcare:
+  remove_factors: []
+  
+  factor_signs:
+    # Bad when high
+    DSO: -1
+    Debt_to_Equity: -1
+    
+    # Good when high
+    ROIC: 1
+    ROAA: 1
+    OperatingMargin: 1
+    NetRevenue_YoY: 1
+    Patient_Volume_Growth: 1
+    
+  key_factors:
+    - ROIC
+    - OperatingMargin
+    - NetRevenue_YoY
+    - Patient_Volume_Growth
+
+# DEFAULT CONFIGURATION (for any sector not explicitly defined)
+default:
+  remove_factors: []
+  
+  factor_signs:
+    # Common bad-when-high metrics
+    Debt_to_Equity: -1
+    Debt_to_Assets: -1
+    DIO: -1
+    DSO: -1
+    DPO: -1
+    CCC: -1
+    
+    # Common good-when-high metrics
+    ROIC: 1
+    ROAA: 1
+    ROAE: 1
+    ROE: 1
+    ROA: 1
+    GrossProfitMargin: 1
+    OperatingMargin: 1
+    NetProfitMargin: 1
+    EBITDA_Margin: 1
+    NetRevenue_YoY: 1
+    NetProfit_YoY: 1
+    EBIT_YoY: 1
+    EBITDA_YoY: 1
+    Asset_Turnover: 1
+    Inventory_Turnover: 1
+    Receivables_Turnover: 1
+    
+  key_factors:
+    - ROIC
+    - ROAA
+    - NetRevenue_YoY
+    - GrossProfitMargin
+    - Asset_Turnover
+
+# GLOBAL SETTINGS
+global_settings:
+  transaction_cost: 0.003  # 30 bps round-trip
+  rebalance_frequency: 63  # Days (quarterly)
+  min_stocks_per_portfolio: 3
+  portfolio_percentile: 0.2  # Top/bottom 20%
+  winsorize_percentile: 0.95
+  max_factor_value: 5  # Cap z-scores
+  deployment_sharpe_threshold: 0.4
+  deployment_return_threshold: 0.008  # 0.8% net

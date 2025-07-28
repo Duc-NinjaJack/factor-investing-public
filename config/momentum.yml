@@ -1,0 +1,73 @@
+# Momentum Strategy Configuration
+# All parameters for momentum strategies in one place
+
+# Data filters and universe selection
+data:
+  min_price: 5000  # Minimum stock price in VND
+  min_market_cap: 5_000_000_000  # 5B VND minimum market cap
+  min_volume: 100000  # Minimum daily volume
+  lookback_days: 252  # Default lookback period for calculations
+  
+# Portfolio construction parameters
+portfolio:
+  default_size: 15  # Number of positions in portfolio
+  sector_cap: 0.30  # Maximum allocation to any single sector (30%)
+  position_size_method: "equal_weight"  # or "volatility_weighted"
+  
+# Strategy-specific parameters
+strategies:
+  v1_risk_managed:
+    lookback_days: 252
+    portfolio_size: 15
+    momentum_threshold: 2.0  # Minimum vol-adjusted momentum score
+    trend_sma_length: 200  # SMA period for market trend filter
+    sector_cap: 0.30
+    
+  v2_enhanced_signal:
+    lookback_days: 252
+    skip_days: 22  # Skip most recent month (12-2 momentum)
+    portfolio_size: 15
+    momentum_threshold: 0.0
+    volatility_weight: true  # Use inverse volatility weighting
+    
+  v3_quality_filtered:
+    # Inherits from V2
+    quality_filters:
+      min_roe: 0.10  # Minimum 10% ROE
+      max_debt_to_ebitda: 3.0
+      
+  clenow:
+    lookback_days: 252
+    portfolio_size: 30  # Clenow typically uses more positions
+    rebalance_frequency: "monthly"
+    use_regression_slope: true
+    
+# Backtesting parameters
+backtest:
+  initial_cash: 100_000_000  # 100M VND
+  commission: 0.0015  # 0.15% per trade
+  slippage: 0.001  # 0.1% slippage
+  benchmark: "VNINDEX"
+  
+# Risk management
+risk:
+  max_position_size: 0.10  # Maximum 10% in any position
+  stop_loss: null  # No stop loss by default
+  trailing_stop: null
+  market_filter:
+    enabled: true
+    index: "VNINDEX"
+    sma_period: 200
+    
+# Rebalancing
+rebalancing:
+  frequency: "monthly"  # or "weekly", "quarterly"
+  day_of_month: 1  # First trading day of month
+  min_days_between: 20  # Minimum days between rebalances
+  
+# Output and reporting
+output:
+  reports_dir: "output/momentum"
+  save_trades: true
+  save_positions: true
+  generate_tearsheet: true

@@ -1,0 +1,13 @@
+# database.yml
+
+production:
+  host: localhost
+  schema_name: alphabeta
+  username: root
+  password: "12345678"
+
+development:
+  host: localhost
+  schema_name: alphabeta
+  username: root
+  password: "12345678"

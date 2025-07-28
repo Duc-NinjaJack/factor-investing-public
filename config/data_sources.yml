@@ -1,0 +1,21 @@
+# data_sources.yml
+api:
+  base_api_url: http://wong-trading.com/apivn2.php
+  client: duc_nguyen
+
+paths:
+  ohlcv: data/raw/ohlcv_data
+  ohlcv_forced: data/raw/ohlcv_data_forced
+  ohlcv_unadjusted: data/raw/ohlcv_unadjusted/equity_history_export_20250429_144645.csv
+  fund_data: data/raw/fund_data
+  metrics: data/raw/metrics_data
+  sectors:
+    path: data/raw/sectors
+    filename: sectors_E_advanced.json
+  backups: data/backups/full_backup.sql
+  etf_indices: data/raw/etf_indices_data
+
+stock_metrics_api:
+  base_url: "http://wong-trading.com/apivn2.php"
+  client_id: "duc_nguyen"
+  timeout_seconds: 30

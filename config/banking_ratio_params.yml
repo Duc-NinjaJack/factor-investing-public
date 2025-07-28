@@ -1,0 +1,40 @@
+# Banking Ratio Parameters Configuration
+# This file defines the parameters used for calculating banking sector ratios
+
+# NIM (Net Interest Margin) Configuration
+nim:
+  # Preferred denominator for NIM calculation
+  preferred_denominator: "InterestEarningAssets"
+  # Fallback denominator if preferred is not available
+  fallback_denominator: "GrossLoans"
+  # Description of each option
+  description:
+    InterestEarningAssets: "More accurate measure including all interest-earning assets"
+    GrossLoans: "Proxy measure using only gross loans"
+
+# Cost of Credit Configuration
+cost_of_credit:
+  # Whether to use average gross loans (more accurate) or point-in-time
+  use_average_loans: true
+  # Number of periods to average (if using average)
+  averaging_periods: 2  # Current and previous quarter
+
+# Capital Adequacy Ratio (CAR) Configuration
+car:
+  # Preferred denominator - Risk Weighted Assets
+  preferred_denominator: "RWA"
+  # Fallback approximation using total assets
+  fallback_scale_factor: 0.80  # Total Assets * 0.80 to approximate RWA
+  # Description
+  description:
+    RWA: "Actual Risk Weighted Assets from regulatory reporting"
+    TotalAssets: "Total Assets scaled by fallback_scale_factor as a proxy"
+
+# LDR (Loan-to-Deposit Ratio) Configuration
+ldr:
+  # Whether to include specific items in the denominator
+  include_interbank: false
+  # Description
+  description:
+    basic: "Gross Loans / Customer Deposits"
+    expanded: "Gross Loans / (Customer Deposits + Interbank Borrowings)" 

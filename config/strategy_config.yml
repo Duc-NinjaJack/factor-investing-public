@@ -1,0 +1,221 @@
+# Phase 5 Institutional QVM Factor Configuration
+# Author: Duc Nguyen
+# Date: July 16, 2025
+# Purpose: Centralized configuration for factor calculations
+
+# Quality Factor Configuration
+quality:
+  # Three-tier weighting (FIXED: Level signal should dominate)
+  tier_weights:
+    level: 0.50      # Current profitability (increased from 0.30)
+    change: 0.30     # YoY improvement (decreased from 0.50)
+    acceleration: 0.20 # QoQ acceleration (unchanged)
+  
+  # Profitability metrics by sector
+  metrics:
+    banking: 
+      - ROAE
+      - ROAA
+      - NIM
+      - Cost_Income_Ratio
+    securities:
+      - ROAE
+      - BrokerageRatio
+      - NetProfitMargin
+    non_financial:
+      - ROAE
+      - NetProfitMargin
+      - GrossMargin
+      - OperatingMargin
+  
+  # Normalization parameters
+  normalization:
+    method: "sector_neutral"  # or "cross_sectional"
+    winsorize_limits: [0.01, 0.99]
+    z_score_cap: 3.0
+
+# Value Factor Configuration
+value:
+  # Value metric weights
+  metric_weights:
+    earnings_yield: 0.40  # P/E inverse
+    book_to_price: 0.30   # P/B inverse
+    sales_to_price: 0.20  # P/S inverse
+    ev_ebitda: 0.10      # EV/EBITDA inverse
+  
+  # Sector-specific revenue metrics
+  revenue_metrics:
+    banking: "TotalOperatingIncome_TTM"
+    securities: "TotalOperatingRevenue_TTM"
+    non_financial: "Revenue_TTM"
+  
+  # Handling of negative values
+  negative_handling:
+    earnings: "exclude"  # Exclude negative earnings from P/E
+    book_value: "exclude"  # Exclude negative book value from P/B
+    ebitda: "exclude"     # Exclude negative EBITDA from EV/EBITDA
+
+# Momentum Factor Configuration
+momentum:
+  # Timeframe weights
+  timeframe_weights:
+    "1M": 0.15
+    "3M": 0.25
+    "6M": 0.30
+    "12M": 0.30
+  
+  # Lookback periods (months)
+  lookback_periods:
+    "1M": 1
+    "3M": 3
+    "6M": 6
+    "12M": 12
+  
+  # Skip months to avoid microstructure noise
+  skip_months: 1
+  
+  # Volatility scaling
+  volatility_scaling:
+    enabled: true
+    lookback_days: 30
+  
+  # Vietnam-specific adjustments
+  vietnam_adjustments:
+    retail_turnover_penalty: 0.7
+    stop_loss_threshold: -0.15
+
+# QVM Composite Configuration
+qvm_composite:
+  # Factor weights (institutional standard)
+  weights:
+    quality: 0.40
+    value: 0.30
+    momentum: 0.30
+  
+  # Dynamic rebalancing (future enhancement)
+  dynamic_weighting:
+    enabled: false
+    correlation_threshold: 0.7
+    regime_detection: false
+
+# Data Quality Configuration
+data_quality:
+  # Reporting lag assumptions
+  reporting_lag:
+    quarterly: 45  # Days after quarter end
+    annual: 90     # Days after year end
+  
+  # Ratio validation ranges
+  ratio_ranges:
+    ROAE: [0.0, 0.5]      # 0-50% is reasonable
+    ROAA: [0.0, 0.1]      # 0-10% is reasonable
+    NIM: [0.0, 0.15]      # 0-15% for banks
+    Cost_Income_Ratio: [0.2, 0.8]  # 20-80% for banks
+    PE: [-100, 100]       # Handle negative earnings
+    PB: [0, 20]           # Book multiples
+    PS: [0, 50]           # Sales multiples
+    EV_EBITDA: [-50, 50]  # Handle negative EBITDA
+  
+  # Missing data handling
+  missing_data:
+    imputation_method: "sector_median"
+    min_coverage: 0.7  # Minimum data coverage required
+    max_staleness_days: 180  # Maximum days for stale data
+
+# Sector Configuration
+sectors:
+  # Sector mapping
+  financial_sectors:
+    - "Banking"
+    - "Securities"  
+    - "Insurance"
+  
+  # Sector-specific adjustments
+  sector_adjustments:
+    banking:
+      use_specialized_metrics: true
+      regulatory_adjustments: true
+    securities:
+      cyclical_adjustments: true
+      market_beta_adjustment: true
+    real_estate:
+      development_cycle_adjustment: true
+      asset_revaluation_treatment: true
+
+# Performance Configuration
+performance:
+  # Batch processing
+  batch_size: 100
+  parallel_processing: true
+  max_workers: 4
+  
+  # Caching
+  cache_enabled: true
+  cache_ttl_hours: 24
+  
+  # Logging
+  log_level: "INFO"
+  detailed_logging: false
+
+# Backtesting Configuration
+backtesting:
+  # Historical calculation parameters
+  start_date: "2018-01-01"
+  end_date: "2025-07-16"
+  rebalancing_frequency: "M"  # 'M' for monthly, 'Q' for quarterly
+  
+  # Transaction costs
+  transaction_cost: 0.002  # 20 bps
+  market_impact: 0.001     # 10 bps
+  
+  # Universe constraints
+  min_market_cap: 1000e9   # 1T VND
+  min_liquidity: 1e9       # 1B VND daily volume
+  max_position_size: 0.05  # 5% per position
+  
+  # Risk management
+  max_sector_weight: 0.4   # 40% per sector
+  max_drawdown_limit: 0.2  # 20% maximum drawdown
+  volatility_target: 0.15  # 15% annualized volatility
+
+# Validation Configuration
+validation:
+  # Test universe
+  test_universe: ["OCB", "NLG", "FPT", "SSI"]
+  
+  # Validation thresholds
+  thresholds:
+    min_ic: 0.05           # Minimum information coefficient
+    min_sharpe: 0.5        # Minimum Sharpe ratio
+    max_turnover: 2.0      # Maximum annual turnover
+  
+  # External validation
+  external_validation:
+    enabled: true
+    benchmark_sources: ["brokerage_data", "bloomberg"]
+    tolerance: 0.05        # 5% tolerance for external validation
+
+# Production Configuration
+production:
+  # Update schedule
+  daily_update_time: "18:30"  # Vietnam time
+  
+  # Monitoring
+  monitoring:
+    enabled: true
+    alert_thresholds:
+      data_quality_score: 0.8
+      factor_correlation: 0.9
+      performance_degradation: 0.1
+  
+  # Fail-safe mechanisms
+  fail_safe:
+    max_consecutive_failures: 3
+    fallback_to_previous: true
+    emergency_contacts: ["duc.nguyen@aureus.com"]
+
+# Version Control
+version: "1.0"
+last_updated: "2025-07-16"
+created_by: "Duc Nguyen"
+review_frequency: "monthly"

@@ -1,0 +1,203 @@
+# Aureus Sigma Daily Dashboard Configuration
+
+# Dashboard Settings
+dashboard:
+  title: "Aureus Sigma Daily Dashboard"
+  refresh_interval: 300  # seconds (5 minutes)
+  timezone: "Asia/Ho_Chi_Minh"
+  
+# Data Sources
+data_sources:
+  # Primary database (required)
+  database:
+    use_config_ini: true  # Uses config/config.ini for connection
+    
+  # External feeds (optional - dashboard will use mock data if not configured)
+  fx_rates:
+    enabled: false
+    provider: "vietcombank"  # or "sbv", "bloomberg"
+    api_key: ""
+    endpoint: ""
+    
+  interest_rates:
+    enabled: false
+    provider: "sbv"
+    api_key: ""
+    endpoint: ""
+    
+  foreign_flows:
+    enabled: false
+    provider: "hsx"
+    api_key: ""
+    endpoint: ""
+
+# Factor Configuration
+factors:
+  # Value factors
+  value:
+    - name: "PE"
+      display_name: "P/E Ratio"
+      sign: -1  # Lower is better
+    - name: "PB"
+      display_name: "P/B Ratio"
+      sign: -1
+    - name: "EV_EBITDA"
+      display_name: "EV/EBITDA"
+      sign: -1
+      
+  # Quality factors
+  quality:
+    - name: "ROE"
+      display_name: "Return on Equity"
+      sign: 1  # Higher is better
+    - name: "ROA"
+      display_name: "Return on Assets"
+      sign: 1
+    - name: "Asset_Turnover"
+      display_name: "Asset Turnover"
+      sign: 1
+      
+  # Momentum factors
+  momentum:
+    - name: "Returns_1M"
+      display_name: "1-Month Returns"
+      sign: 1
+    - name: "Returns_3M"
+      display_name: "3-Month Returns"
+      sign: 1
+    - name: "Returns_6M"
+      display_name: "6-Month Returns"
+      sign: 1
+      
+  # Growth factors
+  growth:
+    - name: "Revenue_Growth"
+      display_name: "Revenue Growth"
+      sign: 1
+    - name: "Earnings_Growth"
+      display_name: "Earnings Growth"
+      sign: 1
+
+# Risk Management
+risk_management:
+  # Position limits
+  position_limits:
+    max_single_position: 0.05  # 5% max
+    min_single_position: 0.001  # 0.1% min
+    
+  # Sector limits
+  sector_limits:
+    max_sector_exposure: 0.30  # 30% max
+    min_sector_exposure: 0.05  # 5% min
+    
+  # Factor limits
+  factor_limits:
+    max_factor_exposure: 2.0  # 2 standard deviations
+    
+  # Portfolio limits
+  portfolio_limits:
+    max_leverage: 1.0  # No leverage
+    max_turnover_daily: 0.20  # 20% daily turnover limit
+    
+  # VaR limits
+  var_limits:
+    confidence_level: 0.95
+    max_var_1d: 0.02  # 2% max 1-day VaR
+
+# Alert Configuration
+alerts:
+  # Performance alerts
+  performance:
+    drawdown_threshold: -0.10  # Alert at 10% drawdown
+    underperformance_threshold: -0.05  # Alert at 5% underperformance vs benchmark
+    
+  # Risk alerts
+  risk:
+    volatility_spike: 2.0  # Alert when vol > 2x normal
+    correlation_breakdown: 0.80  # Alert when correlation drops below 0.8
+    
+  # Data quality alerts
+  data_quality:
+    missing_data_threshold: 0.05  # Alert if >5% data missing
+    stale_data_hours: 24  # Alert if data older than 24 hours
+    
+  # Compliance alerts
+  compliance:
+    enabled: true
+    check_frequency: "realtime"  # or "batch"
+
+# Display Settings
+display:
+  # Color schemes
+  colors:
+    positive: "#10b981"  # Green
+    negative: "#ef4444"  # Red
+    neutral: "#6b7280"   # Gray
+    primary: "#3b82f6"   # Blue
+    warning: "#f59e0b"   # Amber
+    
+  # Chart settings
+  charts:
+    height: 400
+    show_grid: true
+    animation: true
+    
+  # Table settings
+  tables:
+    rows_per_page: 20
+    show_pagination: true
+    highlight_changes: true
+
+# Caching Configuration
+cache:
+  # Data cache
+  market_data_ttl: 300  # 5 minutes
+  factor_data_ttl: 3600  # 1 hour
+  reference_data_ttl: 86400  # 1 day
+  
+  # Computation cache
+  calculations_ttl: 300  # 5 minutes
+  aggregations_ttl: 900  # 15 minutes
+
+# Audit Configuration
+audit:
+  enabled: true
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  retention_days: 90
+  
+  # What to audit
+  track_actions:
+    - "login"
+    - "data_refresh"
+    - "parameter_change"
+    - "alert_triggered"
+    - "export_data"
+
+# Export Settings
+export:
+  formats:
+    - "PDF"
+    - "Excel"
+    - "CSV"
+  
+  # Report templates
+  templates:
+    daily_report:
+      sections:
+        - "portfolio_snapshot"
+        - "factor_performance"
+        - "risk_metrics"
+        - "top_movers"
+    
+    weekly_report:
+      sections:
+        - "performance_attribution"
+        - "factor_analysis"
+        - "risk_decomposition"
+        - "market_overview"
+
+# Development Settings
+development:
+  debug_mode: false
+  show_mock_data_warning: true
+  enable_profiling: false

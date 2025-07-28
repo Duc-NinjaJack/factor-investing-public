@@ -1,0 +1,47 @@
+banking_factors:
+  enhanced_factors:
+  - ROAA
+  - ROAE
+  - NIM
+  - Net_Profit_YoY
+  - NII_YoY
+  - TOI_YoY
+  - Net_Profit_TTM_YoY
+  - Operating_Profit_YoY
+  - LDR
+  - Cost_of_Credit
+  - CIR
+  - Deposits_YoY
+  factor_signs:
+    Asset_Yield: 1
+    CIR: -1
+    Cost_Income_Ratio: -1
+    Cost_of_Credit: -1
+    Deposits_YoY: 1
+    Dividend_Yield: 1
+    Gross_Loans_YoY: 1
+    LDR: -1
+    LLR_NPL_Coverage: 1
+    LLR_Ratio: -1
+    NII_YoY: 1
+    NIM: 1
+    NPL_Ratio: -1
+    Net_Profit_TTM_YoY: 1
+    Net_Profit_YoY: 1
+    Operating_Profit_TTM_YoY: 1
+    Operating_Profit_YoY: 1
+    Provision_Credit_Loss_Rate: -1
+    ROAA: 1
+    ROAE: 1
+    TOI_YoY: 1
+  missing_critical:
+  - CASA_Ratio
+  - Cost_of_Funding
+  - NPL_Coverage_Ratio
+  - Tier1_Capital_Ratio
+  - LLR_NPL_Coverage
+  - Asset_Quality_Index
+  - Net_Interest_Spread
+  remove_factors:
+  - CAR_IsProxy
+  - CAR_Proxy

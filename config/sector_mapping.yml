@@ -1,0 +1,78 @@
+# Sector Mapping Configuration
+# ============================
+# Maps raw sector names from JSON files to clean, standardized names
+# Used for master_info and factor_values table updates
+
+# Mapping from raw JSON sector names to clean names
+sector_name_mapping:
+  # Raw name -> Clean name
+  "vs accommodate": "Hotels & Tourism"
+  "vs agri": "Agriculture"
+  "vs ancillary prodution": "Ancillary Production"
+  "vs banking": "Banks"
+  "vs conmaterial": "Construction Materials"
+  "vs construct": "Construction"
+  "vs e equipment": "Electrical Equipment"
+  "vs fooddrink": "Food & Beverage"
+  "vs healthcare": "Healthcare"
+  "vs household": "Household Goods"
+  "vs ict": "Technology"
+  "vs insurance": "Insurance"
+  "vs logistics": "Logistics"
+  "vs machinery": "Machinery"
+  "vs miningoil": "Mining & Oil"
+  "vs other financial": "Other Financial"
+  "vs plastics": "Plastics"
+  "vs pst service": "Industrial Services"
+  "vs real estate": "Real Estate"
+  "vs retail": "Retail"
+  "vs rubber prod": "Rubber Products"
+  "vs seafood": "Seafood"
+  "vs securities": "Securities"
+  "vs utilities": "Utilities"
+  "vs wholesales": "Wholesale"
+
+# Already clean sectors (no transformation needed)
+clean_sectors:
+  - "Construction"
+  - "Construction Materials"
+  - "Electrical Equipment"
+  - "Food & Beverage"
+  - "Healthcare"
+  - "Insurance"
+  - "Industrial Services"
+  - "Plastics"
+  - "Real Estate"
+  - "Retail"
+  - "Securities"
+  - "Utilities"
+  - "Wholesale"
+
+# Sector name aliases for backward compatibility
+sector_aliases:
+  # Old name -> New name
+  "banking": "Banks"
+  "insurance": "Insurance"
+  "real_estate": "Real Estate"
+  "securities": "Securities"
+  "conmaterial": "Construction Materials"
+  "miningoil": "Mining & Oil"
+  "construct": "Construction"
+  "e_equipment": "Electrical Equipment"
+  "fooddrink": "Food & Beverage"
+  "household": "Household Goods"
+  "ict": "Technology"
+  "logistics": "Logistics"
+  "machinery": "Machinery"
+  "plastics": "Plastics"
+  "pst_service": "Industrial Services"
+  "retail": "Retail"
+  "accommodate": "Hotels & Tourism"
+  "wholesales": "Wholesale"
+  "utilities": "Utilities"
+  "agri": "Agriculture"
+  "ancillary_prodution": "Ancillary Production"
+  "rubber_prod": "Rubber Products"
+  "seafood": "Seafood"
+  "other_financial": "Other Financial"
+  "healthcare": "Healthcare"

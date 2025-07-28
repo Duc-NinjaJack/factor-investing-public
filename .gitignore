@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+.ipynb_checkpoints/
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.h5
+*.pkl
+*.pickle
+*.parquet
+
+# Credentials and configs
+config/credentials.py
+config/db_config.py
+config/*_credentials.py
+*.env
+.env.*
+
+# MacOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+
+# API keys and secrets
+*api_key*
+*secret*
+*password*
+*token*
+
+# Cache
+.cache/
+__pycache__/

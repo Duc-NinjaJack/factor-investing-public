@@ -1,0 +1,42 @@
+# parameters.yml
+
+logging:
+  log_file_path: logs/banking_metrics_dynamic_upsert.log
+  log_level: INFO
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+financial_statements:
+  profit_loss: 2
+  balance_sheet: 1
+  cash_flow: 4
+
+# gemini:
+#   api_key: AIzaSyBu9xMgANEGye0GR-iDO3_XdVysdaK8s-0
+#   temperature: 0.7
+#   max_output_tokens: 2048
+#   top_p: 0.8
+#   top_k: 40
+
+gemini:
+  api_key: AIzaSyBu9xMgANEGye0GR-iDO3_XdVysdaK8s-0
+  model_name: "gemini-2.0-flash-exp"   # or any other
+  temperature: 0.0                    # to minimize 'creative' changes
+  top_p: 1.0
+  top_k: 1
+  max_output_tokens: 8192             # or whatever limit you prefer
+
+market_data_pipeline:
+  target_table: equity_market_data
+  source_table_adj_hist: equity_history
+  source_table_unadj_hist: equity_history_unadjusted
+  source_table_quarterly_shares: historical_financial_metrics
+  # Date cutoffs for the shares outstanding hierarchy in the backfill script
+  # Updated on May 8, 2025 to run backfill with new Q1 2025 data
+  quarterly_shares_end_date: '2025-03-31'
+  daily_hist_shares_end_date: '2025-05-07'
+  api_shares_start_date: '2025-05-08'
+
+paths:
+  metrics_data_json: "data/raw/financial_metrics_json" 
+  sectors_list_json: "config/sectors_list.json"

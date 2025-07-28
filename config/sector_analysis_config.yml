@@ -1,0 +1,16 @@
+# config/sector_analysis_config.yml
+analysis_periods:
+  default_start_year: 2018
+  default_start_quarter: 1
+  default_end_year: 2025
+  default_end_quarter: 1
+
+sector_tickers_for_analysis:
+  banking: ['OCB', 'VCB', 'TCB', 'ACB', 'MBB', 'STB', 'VPB', 'VIB']
+  insurance: ['BVH', 'BMI', 'PVI']
+  securities: ['SSI', 'VND', 'HCM', 'VCI', 'VDS']
+  real_estate: ['VIC', 'NLG', 'DXG', 'VHM', 'KDH']
+  non_financial_fooddrink: ['MSN', 'VNM', 'SAB', 'MCH']
+  non_financial_conmaterial: ['HPG', 'HSG', 'NKG', 'HSG', 'GVR']
+  non_financial_retail: ['MWG', 'PNJ', 'DGW']
+  non_financial_tech: ['FPT', 'CMG', 'ELC'] 

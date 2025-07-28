@@ -1,0 +1,15 @@
+# Configuration for financial calculation limits and thresholds.
+# This file centralizes "magic numbers" to make them easier to audit and tune.
+
+# Materiality threshold in VND. Values below this are considered economically insignificant for YoY calculations.
+materiality_vnd: 1000000000 # 1 Billion VND
+
+# Cap for Year-over-Year (YoY) growth calculations.
+# Prevents extreme outliers from distorting results (e.g., growth from a very small base).
+# Value is in percent (e.g., 500.0 means +500%).
+yoy_growth_cap_percent: 500.0
+
+# Cap for Compound Annual Growth Rate (CAGR) calculations.
+# Prevents unrealistic long-term growth rates.
+# Value is in percent (e.g., 100.0 means +100%).
+cagr_cap_percent: 100.0 
