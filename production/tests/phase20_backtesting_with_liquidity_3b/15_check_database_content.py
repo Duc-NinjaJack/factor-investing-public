@@ -214,7 +214,7 @@ class DatabaseContentChecker:
         import pickle
         
         # Load pickle data
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             pickle_data = pickle.load(f)
         
         factor_data = pickle_data['factor_data']

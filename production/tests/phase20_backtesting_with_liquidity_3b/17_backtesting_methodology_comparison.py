@@ -45,18 +45,18 @@ class BacktestingMethodologyComparator:
         logger.info("Loading backtesting results...")
         
         # Load simplified backtesting results
-        with open('simplified_backtesting_comparison_results.pkl', 'rb') as f:
-            simplified_results = pickle.load(f)
+        with open('data/simplified_backtesting_comparison_results.pkl', 'rb') as f:
+            simplified_data = pickle.load(f)
         
         # Load real data backtesting results
-        with open('full_backtesting_real_data_results.pkl', 'rb') as f:
+        with open('data/full_backtesting_real_data_results.pkl', 'rb') as f:
             real_results = pickle.load(f)
         
         logger.info("✅ Backtesting results loaded")
-        logger.info(f"   - Simplified results keys: {list(simplified_results.keys())}")
+        logger.info(f"   - Simplified results keys: {list(simplified_data.keys())}")
         logger.info(f"   - Real results keys: {list(real_results.keys())}")
         
-        return simplified_results, real_results
+        return simplified_data, real_results
     
     def extract_return_series(self, simplified_results, real_results):
         """Extract and compare return series from both approaches."""

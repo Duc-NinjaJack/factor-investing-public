@@ -208,7 +208,7 @@ def save_data_for_analysis():
     }
 
     # Save to file
-    save_path = Path(__file__).parent / "unrestricted_universe_data.pkl"
+    save_path = Path(__file__).parent / "data" / "unrestricted_universe_data.pkl"
     with open(save_path, "wb") as f:
         pickle.dump(unrestricted_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 

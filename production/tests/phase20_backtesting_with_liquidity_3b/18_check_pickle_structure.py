@@ -57,12 +57,13 @@ def main():
     print("=" * 40)
     
     # Check simplified backtesting results
-    simplified_data = check_pickle_structure('simplified_backtesting_comparison_results.pkl')
+    simplified_data = check_pickle_structure('data/simplified_backtesting_comparison_results.pkl')
+    print("✅ Simplified backtesting data structure checked")
     
     print("\n" + "="*40 + "\n")
     
     # Check real data backtesting results
-    real_data = check_pickle_structure('full_backtesting_real_data_results.pkl')
+    real_data = check_pickle_structure('data/full_backtesting_real_data_results.pkl')
     
     print("\n" + "="*40 + "\n")
     

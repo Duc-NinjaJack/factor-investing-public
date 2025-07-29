@@ -43,7 +43,7 @@ print(f"Execution Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 def load_data():
     """Load the unrestricted universe data."""
-    data_path = Path(__file__).parent / "unrestricted_universe_data.pkl"
+    data_path = Path(__file__).parent / "data" / "unrestricted_universe_data.pkl"
     
     print("📊 Loading unrestricted universe data...")
     with open(data_path, "rb") as f:
@@ -531,7 +531,7 @@ def main():
             }
         }
         
-        results_path = Path(__file__).parent / "high_scoring_stocks_analysis_results.pkl"
+        results_path = Path(__file__).parent / "data" / "high_scoring_stocks_analysis_results.pkl"
         with open(results_path, "wb") as f:
             pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
         

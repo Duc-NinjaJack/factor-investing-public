@@ -96,7 +96,7 @@ class DynamicStrategyDatabaseBacktest:
         
         # Load ADTV data from pickle
         try:
-            with open('unrestricted_universe_data.pkl', 'rb') as f:
+            with open('data/unrestricted_universe_data.pkl', 'rb') as f:
                 pickle_data = pickle.load(f)
             
             data['adtv_data'] = pickle_data['adtv']
@@ -849,7 +849,7 @@ class DynamicStrategyDatabaseBacktest:
                 f.write(report)
             
             # Save results
-            with open('dynamic_strategy_database_backtest_results.pkl', 'wb') as f:
+            with open('data/dynamic_strategy_database_backtest_results.pkl', 'wb') as f:
                 pickle.dump({
                     'backtest_results': backtest_results,
                     'metrics_df': metrics_df,

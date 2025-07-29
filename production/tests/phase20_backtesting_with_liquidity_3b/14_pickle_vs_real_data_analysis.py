@@ -70,7 +70,7 @@ class PickleVsRealDataAnalyzer:
         """Load data from pickle file."""
         logger.info("Loading pickle data...")
         
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             pickle_data = pickle.load(f)
         
         factor_scores = pickle_data['factor_data']
@@ -528,14 +528,14 @@ class PickleVsRealDataAnalyzer:
             }
             
             # Save to pickle
-            with open('pickle_vs_real_data_analysis_results.pkl', 'wb') as f:
+            with open('data/pickle_vs_real_data_analysis_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
             logger.info("✅ Complete discrepancy analysis finished successfully!")
             logger.info("📊 Results saved to:")
             logger.info("   - img/pickle_vs_real_data_discrepancies.png")
             logger.info("   - pickle_vs_real_data_discrepancy_report.md")
-            logger.info("   - pickle_vs_real_data_analysis_results.pkl")
+            logger.info("   - data/pickle_vs_real_data_analysis_results.pkl")
             
             return results
             

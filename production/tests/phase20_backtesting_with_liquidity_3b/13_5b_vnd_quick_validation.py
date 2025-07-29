@@ -51,7 +51,7 @@ class FiveBVNDQuickValidator:
         logger.info("Loading data for 5B VND quick validation...")
         
         # Load unrestricted universe data
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             data = pickle.load(f)
         
         factor_scores = data['factor_scores']
@@ -353,14 +353,14 @@ class FiveBVNDQuickValidator:
             }
             
             # Save to pickle
-            with open('5b_vnd_quick_validation_results.pkl', 'wb') as f:
+            with open('data/5b_vnd_quick_validation_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
             logger.info("✅ Complete 5B VND quick validation finished successfully!")
             logger.info("📊 Results saved to:")
             logger.info("   - img/5b_vnd_quick_validation.png")
             logger.info("   - 5b_vnd_quick_validation_report.md")
-            logger.info("   - 5b_vnd_quick_validation_results.pkl")
+            logger.info("   - data/5b_vnd_quick_validation_results.pkl")
             
             return results
             

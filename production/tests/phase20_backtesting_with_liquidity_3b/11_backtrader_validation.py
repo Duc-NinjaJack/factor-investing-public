@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Simple Backtrader Validation: 10B vs 3B VND Thresholds
-======================================================
-Component: Simplified Backtrader Validation
-Purpose: Validate results using simplified backtrader framework
+Backtrader Validation: 10B vs 3B VND Thresholds
+===============================================
+Component: Advanced Backtesting Framework Validation
+Purpose: Validate results using backtrader framework
 Author: Duc Nguyen, Principal Quantitative Strategist
 Date Created: January 2025
-Status: SIMPLIFIED VALIDATION
+Status: ADVANCED VALIDATION
 
-This script uses a simplified backtrader approach to validate the backtesting results:
+This script uses backtrader to validate the backtesting results:
+- Implements custom strategy with liquidity filtering
 - Uses real price data from database
-- Implements basic strategy with liquidity filtering
+- Enforces no-short-selling constraint
+- Provides detailed analytics and visualizations
 - Compares 10B vs 3B VND thresholds
-- Provides performance metrics and visualizations
 
 Dependencies:
 - backtrader >= 1.9.76.123
@@ -42,28 +43,33 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class SimpleLiquidityStrategy(bt.Strategy):
+class LiquidityFilterStrategy(bt.Strategy):
     """
-    Simple strategy with liquidity filtering.
+    Custom strategy with liquidity filtering and QVM factor selection.
     """
     
     params = (
         ('liquidity_threshold', 10_000_000_000),  # Default 10B VND
         ('portfolio_size', 25),
         ('rebalance_freq', 30),  # Rebalance every 30 days
+        ('transaction_cost', 0.002),  # 20 bps
     )
     
     def __init__(self):
         """Initialize the strategy."""
         self.order_list = []
+        self.rebalance_day = 0
         self.portfolio_weights = {}
-        self.portfolio_values = []
         
-        # Store external data
+        # Store factor scores and ADTV data
         self.factor_scores = {}
         self.adtv_data = {}
         
-        logger.info(f"Simple strategy initialized with {self.params.liquidity_threshold:,} VND threshold")
+        # Performance tracking
+        self.returns = []
+        self.portfolio_values = []
+        
+        logger.info(f"Strategy initialized with {self.params.liquidity_threshold:,} VND threshold")
     
     def log(self, txt, dt=None):
         """Logging function."""
@@ -150,15 +156,16 @@ class SimpleLiquidityStrategy(bt.Strategy):
         # Store portfolio weights for tracking
         self.portfolio_weights[current_date] = {ticker: weight for ticker in top_stocks}
         
-        # Track portfolio value
+        # Track performance
+        self.returns.append(self.broker.getvalue() / self.broker.startingcash - 1)
         self.portfolio_values.append(self.broker.getvalue())
         
         self.log(f'Rebalanced portfolio with {len(top_stocks)} stocks')
 
 
-class SimpleBacktraderValidator:
+class BacktraderValidator:
     """
-    Simple backtrader validation framework.
+    Backtrader validation framework for liquidity threshold comparison.
     """
     
     def __init__(self, config_path: str = "../../../config/database.yml"):
@@ -172,7 +179,7 @@ class SimpleBacktraderValidator:
             '3B_VND': 3_000_000_000
         }
         
-        logger.info("Simple Backtrader Validator initialized")
+        logger.info("Backtrader Validator initialized")
     
     def _create_database_engine(self):
         """Create database engine."""
@@ -192,16 +199,16 @@ class SimpleBacktraderValidator:
     
     def load_data_for_backtrader(self) -> Dict:
         """Load and prepare data for backtrader."""
-        logger.info("Loading data for simple backtrader validation...")
+        logger.info("Loading data for backtrader validation...")
         
         # Load ADTV data from pickle
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             pickle_data = pickle.load(f)
         
         adtv_data = pickle_data['adtv']
         
-        # Load price data for top stocks (limit to 20 for simplicity)
-        top_stocks = adtv_data.columns.tolist()[:20]
+        # Load price data for top stocks
+        top_stocks = adtv_data.columns.tolist()[:50]  # Use top 50 stocks for efficiency
         
         price_query = f"""
         SELECT trading_date, ticker, close_price_adjusted
@@ -264,7 +271,7 @@ class SimpleBacktraderValidator:
         for date in adtv_data.index:
             adtv_by_date[date] = adtv_data.loc[date].to_dict()
         
-        logger.info(f"✅ Data loaded for simple backtrader")
+        logger.info(f"✅ Data loaded for backtrader")
         logger.info(f"   - Stocks: {len(cerebro_data)}")
         logger.info(f"   - Factor dates: {len(factor_scores_by_date)}")
         logger.info(f"   - ADTV dates: {len(adtv_by_date)}")
@@ -275,10 +282,10 @@ class SimpleBacktraderValidator:
             'adtv_data': adtv_by_date
         }
     
-    def run_simple_backtest(self, threshold_name: str, threshold_value: int, 
-                           data_dict: Dict) -> Dict:
-        """Run simple backtrader backtest."""
-        logger.info(f"Running simple backtest for {threshold_name}...")
+    def run_backtrader_backtest(self, threshold_name: str, threshold_value: int, 
+                               data_dict: Dict) -> Dict:
+        """Run backtrader backtest for a specific threshold."""
+        logger.info(f"Running backtrader backtest for {threshold_name}...")
         
         # Create cerebro instance
         cerebro = bt.Cerebro()
@@ -288,10 +295,11 @@ class SimpleBacktraderValidator:
             cerebro.adddata(data, name=ticker)
         
         # Add strategy
-        cerebro.addstrategy(SimpleLiquidityStrategy, 
+        cerebro.addstrategy(LiquidityFilterStrategy, 
                            liquidity_threshold=threshold_value,
-                           portfolio_size=15,  # Reduced for simplicity
-                           rebalance_freq=30)
+                           portfolio_size=25,
+                           rebalance_freq=30,
+                           transaction_cost=0.002)
         
         # Set initial cash
         cerebro.broker.setcash(100_000_000)  # 100M VND
@@ -303,8 +311,9 @@ class SimpleBacktraderValidator:
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
         cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
         
-        # Store external data in strategy
+        # Store factor and ADTV data in strategy
         strategy = cerebro.strats[0][0]
         strategy.factor_scores = data_dict['factor_scores']
         strategy.adtv_data = data_dict['adtv_data']
@@ -312,13 +321,14 @@ class SimpleBacktraderValidator:
         # Run backtest
         results = cerebro.run()
         
-        # Extract results
+        # Extract results - backtrader returns a list of strategies
         strat = results[0]
         
         # Get analyzer results
         sharpe_ratio = strat.analyzers.sharpe.get_analysis()['sharperatio']
         drawdown = strat.analyzers.drawdown.get_analysis()
         returns = strat.analyzers.returns.get_analysis()
+        trades = strat.analyzers.trades.get_analysis()
         
         # Calculate metrics
         total_return = returns.get('rtot', 0)
@@ -328,7 +338,7 @@ class SimpleBacktraderValidator:
         # Get portfolio values
         portfolio_values = strat.portfolio_values if hasattr(strat, 'portfolio_values') else []
         
-        logger.info(f"✅ {threshold_name} simple backtest complete")
+        logger.info(f"✅ {threshold_name} backtrader backtest complete")
         logger.info(f"   - Total Return: {total_return:.2%}")
         logger.info(f"   - Annual Return: {annual_return:.2%}")
         logger.info(f"   - Sharpe Ratio: {sharpe_ratio:.2f}")
@@ -339,24 +349,26 @@ class SimpleBacktraderValidator:
             'annual_return': annual_return,
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
-            'portfolio_values': portfolio_values
+            'portfolio_values': portfolio_values,
+            'trades': trades,
+            'cerebro': cerebro
         }
     
-    def run_comparative_tests(self, data_dict: Dict) -> Dict:
-        """Run comparative backtests."""
-        logger.info("Running comparative simple backtests...")
+    def run_comparative_backtrader_tests(self, data_dict: Dict) -> Dict:
+        """Run comparative backtrader backtests."""
+        logger.info("Running comparative backtrader backtests...")
         
         backtest_results = {}
         
         for threshold_name, threshold_value in self.thresholds.items():
-            results = self.run_simple_backtest(threshold_name, threshold_value, data_dict)
+            results = self.run_backtrader_backtest(threshold_name, threshold_value, data_dict)
             backtest_results[threshold_name] = results
         
         return backtest_results
     
-    def create_visualizations(self, backtest_results: Dict):
-        """Create visualizations."""
-        logger.info("Creating simple backtrader visualizations...")
+    def create_backtrader_visualizations(self, backtest_results: Dict):
+        """Create backtrader-specific visualizations."""
+        logger.info("Creating backtrader visualizations...")
         
         # Create figure
         fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -367,7 +379,7 @@ class SimpleBacktraderValidator:
             portfolio_values = results['portfolio_values']
             if portfolio_values:
                 ax1.plot(portfolio_values, label=threshold, linewidth=2)
-        ax1.set_title('Portfolio Value Evolution (Simple Backtrader)', fontweight='bold')
+        ax1.set_title('Portfolio Value Evolution (Backtrader)', fontweight='bold')
         ax1.set_ylabel('Portfolio Value (VND)')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
@@ -395,7 +407,7 @@ class SimpleBacktraderValidator:
         metrics_df = pd.DataFrame(metrics_data)
         metrics_pivot = metrics_df.pivot(index='Metric', columns='Threshold', values='Value')
         metrics_pivot.plot(kind='bar', ax=ax2)
-        ax2.set_title('Performance Metrics (Simple Backtrader)', fontweight='bold')
+        ax2.set_title('Performance Metrics (Backtrader)', fontweight='bold')
         ax2.set_ylabel('Value')
         ax2.legend()
         plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45)
@@ -405,7 +417,7 @@ class SimpleBacktraderValidator:
         for threshold, results in backtest_results.items():
             ax3.scatter(abs(results['max_drawdown']), results['annual_return'], 
                        s=100, label=threshold, alpha=0.7)
-        ax3.set_title('Risk-Return Profile (Simple Backtrader)', fontweight='bold')
+        ax3.set_title('Risk-Return Profile (Backtrader)', fontweight='bold')
         ax3.set_xlabel('Max Drawdown (Absolute)')
         ax3.set_ylabel('Annual Return')
         ax3.legend()
@@ -433,24 +445,24 @@ class SimpleBacktraderValidator:
         table.auto_set_font_size(False)
         table.set_fontsize(10)
         table.scale(1.2, 1.5)
-        ax4.set_title('Simple Backtrader Performance Summary', fontweight='bold')
+        ax4.set_title('Backtrader Performance Summary', fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig('img/simple_backtrader_validation_comparison.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/backtrader_validation_comparison.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Simple backtrader visualizations saved to img/simple_backtrader_validation_comparison.png")
+        logger.info("✅ Backtrader visualizations saved to img/backtrader_validation_comparison.png")
     
-    def generate_report(self, backtest_results: Dict) -> str:
-        """Generate validation report."""
-        logger.info("Generating simple backtrader validation report...")
+    def generate_backtrader_report(self, backtest_results: Dict) -> str:
+        """Generate backtrader validation report."""
+        logger.info("Generating backtrader validation report...")
         
         report = []
-        report.append("# Simple Backtrader Validation: 10B vs 3B VND Thresholds")
+        report.append("# Backtrader Validation: 10B vs 3B VND Thresholds")
         report.append("")
         report.append("**Date:** " + datetime.now().strftime("%Y-%m-%d"))
-        report.append("**Purpose:** Simplified backtrader validation")
-        report.append("**Framework:** Backtrader with simplified liquidity filtering strategy")
+        report.append("**Purpose:** Advanced backtesting validation using backtrader framework")
+        report.append("**Framework:** Backtrader with custom liquidity filtering strategy")
         report.append("")
         
         # Executive Summary
@@ -496,7 +508,7 @@ class SimpleBacktraderValidator:
             report.append("✅ **IMPLEMENTATION APPROVED**")
             report.append("- Performance maintained or improved")
             report.append("- Risk metrics within acceptable range")
-            report.append("- Simple backtrader validation confirms results")
+            report.append("- Backtrader validation confirms results")
         elif performance_improved and risk_acceptable:
             report.append("✅ **CONDITIONAL APPROVAL**")
             report.append("- Performance improved")
@@ -505,7 +517,7 @@ class SimpleBacktraderValidator:
         else:
             report.append("❌ **IMPLEMENTATION REJECTED**")
             report.append("- Performance or risk metrics below acceptable thresholds")
-            report.append("- Simple backtrader validation confirms rejection")
+            report.append("- Backtrader validation confirms rejection")
             report.append("- Consider alternative thresholds")
         
         report.append("")
@@ -516,12 +528,12 @@ class SimpleBacktraderValidator:
         
         if performance_improved:
             report.append("1. **Proceed with 3B VND implementation**")
-            report.append("2. **Simple backtrader validation confirms positive results**")
+            report.append("2. **Backtrader validation confirms positive results**")
             report.append("3. **Monitor performance closely** for first 3 months")
             report.append("4. **Set up alerts** for performance degradation")
         else:
             report.append("1. **Maintain current 10B VND threshold**")
-            report.append("2. **Simple backtrader validation confirms negative results**")
+            report.append("2. **Backtrader validation confirms negative results**")
             report.append("3. **Investigate alternative thresholds** (5B VND, 7B VND)")
             report.append("4. **Conduct additional analysis** on universe composition")
         
@@ -530,28 +542,28 @@ class SimpleBacktraderValidator:
         report_text = "\n".join(report)
         
         # Save report
-        with open('simple_backtrader_validation_report.md', 'w') as f:
+        with open('backtrader_validation_report.md', 'w') as f:
             f.write(report_text)
         
-        logger.info("✅ Simple backtrader validation report saved to simple_backtrader_validation_report.md")
+        logger.info("✅ Backtrader validation report saved to backtrader_validation_report.md")
         return report_text
     
     def run_complete_validation(self):
-        """Run the complete simple backtrader validation."""
-        logger.info("🚀 Starting simple backtrader validation...")
+        """Run the complete backtrader validation."""
+        logger.info("🚀 Starting backtrader validation...")
         
         try:
             # Load data
             data_dict = self.load_data_for_backtrader()
             
             # Run comparative backtests
-            backtest_results = self.run_comparative_tests(data_dict)
+            backtest_results = self.run_comparative_backtrader_tests(data_dict)
             
             # Create visualizations
-            self.create_visualizations(backtest_results)
+            self.create_backtrader_visualizations(backtest_results)
             
             # Generate report
-            report = self.generate_report(backtest_results)
+            report = self.generate_backtrader_report(backtest_results)
             
             # Save results
             results = {
@@ -560,34 +572,34 @@ class SimpleBacktraderValidator:
             }
             
             # Save to pickle
-            with open('simple_backtrader_validation_results.pkl', 'wb') as f:
+            with open('data/backtrader_validation_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
-            logger.info("✅ Complete simple backtrader validation finished successfully!")
+            logger.info("✅ Complete backtrader validation finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - img/simple_backtrader_validation_comparison.png")
-            logger.info("   - simple_backtrader_validation_report.md")
-            logger.info("   - simple_backtrader_validation_results.pkl")
+            logger.info("   - img/backtrader_validation_comparison.png")
+            logger.info("   - backtrader_validation_report.md")
+            logger.info("   - data/backtrader_validation_results.pkl")
             
             return results
             
         except Exception as e:
-            logger.error(f"❌ Simple backtrader validation failed: {e}")
+            logger.error(f"❌ Backtrader validation failed: {e}")
             raise
 
 
 def main():
     """Main execution function."""
-    print("🔬 Simple Backtrader Validation: 10B vs 3B VND Thresholds")
-    print("=" * 60)
+    print("🔬 Backtrader Validation: 10B vs 3B VND Thresholds")
+    print("=" * 55)
     
     # Initialize validator
-    validator = SimpleBacktraderValidator()
+    validator = BacktraderValidator()
     
     # Run complete validation
     results = validator.run_complete_validation()
     
-    print("\n✅ Simple backtrader validation completed successfully!")
+    print("\n✅ Backtrader validation completed successfully!")
     print("📊 Check the generated files for detailed results.")
     
     # Print key results
@@ -595,7 +607,7 @@ def main():
     v10b = backtest_results['10B_VND']
     v3b = backtest_results['3B_VND']
     
-    print(f"\n📈 Key Results (Simple Backtrader):")
+    print(f"\n📈 Key Results (Backtrader):")
     print(f"   10B VND: {v10b['annual_return']:.2%} return, {v10b['sharpe_ratio']:.2f} Sharpe, {v10b['max_drawdown']:.2%} drawdown")
     print(f"   3B VND:  {v3b['annual_return']:.2%} return, {v3b['sharpe_ratio']:.2f} Sharpe, {v3b['max_drawdown']:.2%} drawdown")
     print(f"   Change:  {v3b['annual_return'] - v10b['annual_return']:+.2%} return, {v3b['sharpe_ratio'] - v10b['sharpe_ratio']:+.2f} Sharpe, {v3b['max_drawdown'] - v10b['max_drawdown']:+.2%} drawdown")

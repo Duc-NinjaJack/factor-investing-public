@@ -65,7 +65,7 @@ class CorrectedDiscrepancyAnalyzer:
         """Load data from pickle file."""
         logger.info("Loading pickle data...")
         
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             pickle_data = pickle.load(f)
         
         factor_scores = pickle_data['factor_data']

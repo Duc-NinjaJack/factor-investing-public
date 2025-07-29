@@ -30,7 +30,7 @@ def load_data():
     logger.info("Loading data from pickle file...")
     
     try:
-        with open('unrestricted_universe_data.pkl', 'rb') as f:
+        with open('data/unrestricted_universe_data.pkl', 'rb') as f:
             data = pickle.load(f)
         
         logger.info("✅ Data loaded successfully")

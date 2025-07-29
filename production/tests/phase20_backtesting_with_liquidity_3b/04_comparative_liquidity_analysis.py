@@ -109,7 +109,7 @@ class ComparativeLiquidityAnalyzer:
         
         # Load existing pickle data
         try:
-            with open('unrestricted_universe_data.pkl', 'rb') as f:
+            with open('data/unrestricted_universe_data.pkl', 'rb') as f:
                 pickle_data = pickle.load(f)
             
             data['factor_scores'] = pickle_data['factor_data']
@@ -703,14 +703,14 @@ class ComparativeLiquidityAnalyzer:
             }
             
             # Save to pickle for further analysis
-            with open('comparative_liquidity_analysis_results.pkl', 'wb') as f:
+            with open('data/comparative_liquidity_analysis_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
             logger.info("✅ Complete analysis finished successfully!")
             logger.info("📊 Results saved to:")
             logger.info("   - img/comparative_liquidity_analysis.png")
             logger.info("   - comparative_liquidity_analysis_report.md")
-            logger.info("   - comparative_liquidity_analysis_results.pkl")
+            logger.info("   - data/comparative_liquidity_analysis_results.pkl")
             
             return results
             

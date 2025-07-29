@@ -65,7 +65,7 @@ class SimplifiedLiquidityAnalyzer:
         logger.info("Loading data from pickle file...")
         
         try:
-            with open('unrestricted_universe_data.pkl', 'rb') as f:
+            with open('data/unrestricted_universe_data.pkl', 'rb') as f:
                 pickle_data = pickle.load(f)
             
             data = {
@@ -555,14 +555,14 @@ class SimplifiedLiquidityAnalyzer:
             }
             
             # Save to pickle for further analysis
-            with open('simplified_comparative_liquidity_analysis_results.pkl', 'wb') as f:
+            with open('data/simplified_comparative_liquidity_analysis_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
             logger.info("✅ Complete simplified analysis finished successfully!")
             logger.info("📊 Results saved to:")
             logger.info("   - img/simplified_comparative_liquidity_analysis.png")
             logger.info("   - simplified_comparative_liquidity_analysis_report.md")
-            logger.info("   - simplified_comparative_liquidity_analysis_results.pkl")
+            logger.info("   - data/simplified_comparative_liquidity_analysis_results.pkl")
             
             return results
             

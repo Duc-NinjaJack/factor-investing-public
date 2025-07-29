@@ -105,7 +105,7 @@ class FullBacktestingRealData:
         
         # Load ADTV data from pickle
         try:
-            with open('unrestricted_universe_data.pkl', 'rb') as f:
+            with open('data/unrestricted_universe_data.pkl', 'rb') as f:
                 pickle_data = pickle.load(f)
             
             data['adtv_data'] = pickle_data['adtv']
@@ -625,14 +625,14 @@ class FullBacktestingRealData:
             }
             
             # Save to pickle for further analysis
-            with open('full_backtesting_real_data_results.pkl', 'wb') as f:
+            with open('data/full_backtesting_real_data_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
             logger.info("✅ Complete backtesting analysis with real data finished successfully!")
             logger.info("📊 Results saved to:")
             logger.info("   - img/full_backtesting_real_data_comparison.png")
             logger.info("   - full_backtesting_real_data_report.md")
-            logger.info("   - full_backtesting_real_data_results.pkl")
+            logger.info("   - data/full_backtesting_real_data_results.pkl")
             
             return results
             
