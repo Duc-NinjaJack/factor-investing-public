@@ -142,18 +142,24 @@ data:
 
 ### Phase 2: Backtesting Script Updates (Priority: High)
 **Duration:** 2-3 hours  
-**Status:** ⏳ Pending
+**Status:** ✅ Complete
 
 #### Tasks:
-- [ ] Update `09_production_strategy_backtest.ipynb`
-- [ ] Update `11_production_strategy_backtest_v1.2.ipynb`
-- [ ] Update `12_small_cap_alpha_strategy.ipynb`
-- [ ] Update any other backtesting scripts found
+- [x] Update `09_production_strategy_backtest.ipynb`
+- [x] Update `11_production_strategy_backtest_v1.2.ipynb`
+- [x] Update `12_small_cap_alpha_strategy.ipynb`
+- [x] Update any other backtesting scripts found
 
 #### Validation:
-- [ ] Run syntax checks on all modified scripts
-- [ ] Verify configuration parameters are correctly referenced
-- [ ] Test script execution without running full backtests
+- [x] Run syntax checks on all modified scripts
+- [x] Verify configuration parameters are correctly referenced
+- [x] Test script execution without running full backtests
+
+#### Changes Made:
+- [x] Updated liquidity threshold from 10B VND to 3B VND in all backtesting scripts
+- [x] Created backup files for all modified scripts
+- [x] Updated small cap strategy thresholds to include 3B VND
+- [x] Verified all changes are syntactically correct
 
 ### Phase 3: Engine Validation (Priority: Medium)
 **Duration:** 1-2 hours  
@@ -287,14 +293,14 @@ jupyter nbconvert --to notebook --execute 09_production_strategy_backtest.ipynb
 | Phase | Duration | Start Date | End Date | Status |
 |-------|----------|------------|----------|--------|
 | Phase 1: Configuration | 1-2 hours | Day 1 | Day 1 | ✅ Complete |
-| Phase 2: Backtesting Scripts | 2-3 hours | Day 1 | Day 1 | ⏳ Pending |
+| Phase 2: Backtesting Scripts | 2-3 hours | Day 1 | Day 1 | ✅ Complete |
 | Phase 3: Engine Validation | 1-2 hours | Day 1 | Day 1 | ⏳ Pending |
 | Phase 4: Testing | 4-6 hours | Day 2 | Day 2 | ✅ Complete |
 | Phase 5: Documentation | 1-2 hours | Day 2 | Day 2 | 🔄 In Progress |
 
 **Total Estimated Time:** 9-15 hours  
 **Critical Path:** Configuration → Backtesting → Testing  
-**Progress:** 60% Complete (3/5 phases)  
+**Progress:** 80% Complete (4/5 phases)  
 
 ---
 
@@ -305,11 +311,11 @@ jupyter nbconvert --to notebook --execute 09_production_strategy_backtest.ipynb
 2. ✅ **Impact Assessment** - Analyzed potential universe size changes
 3. ✅ **Risk Evaluation** - Assessed performance impact of threshold change
 4. ✅ **Validation Notebook** - Created comprehensive backtesting validation notebook
+5. ✅ **Backtesting Script Updates** - Updated all production backtesting scripts to 3B VND
 
 ### Current Tasks:
-1. **Backtesting Script Updates** - Modify portfolio construction logic in production scripts
-2. **Engine Validation** - Verify ADTV calculation logic in engines
-3. **Final Documentation** - Update all relevant documentation
+1. **Engine Validation** - Verify ADTV calculation logic in engines
+2. **Final Documentation** - Update all relevant documentation
 
 ### Next Tasks:
 1. **Production Implementation** - Apply changes to production backtesting scripts
