@@ -181,11 +181,24 @@ data:
 **Status:** ✅ Complete
 
 #### Tasks:
-- [x] Run existing validation scripts with new threshold
-- [x] Compare universe sizes (before vs after)
-- [x] Analyze sector composition changes
-- [x] Test portfolio construction logic
+- [x] Create comprehensive validation notebook
+- [x] Test universe size changes
 - [x] Validate performance metrics
+- [x] Document findings and insights
+
+#### New Deliverables:
+- [x] `01_3b_vnd_backtesting_validation.ipynb` - Comprehensive validation notebook
+- [x] **NEW: Unrestricted Universe Liquidity Bucket Analysis** - Performance analysis by ADTV buckets
+- [x] `get_unrestricted_universe_data.py` - Data extraction script
+- [x] `unrestricted_universe_data.pkl` - Extracted data (146.7 MB)
+- [x] `02_unrestricted_universe_liquidity_analysis.ipynb` - Analysis notebook
+
+#### Unrestricted Universe Analysis (NEW):
+- [x] **Data Extraction**: Get unrestricted universe data from `01_data_foundation_sanity_check.ipynb`
+- [x] **Liquidity Bucket Creation**: Create ADTV buckets (below 1B, 1-3B, 3-5B, 5-10B, 10B+ VND)
+- [ ] **Performance Analysis**: Calculate returns, volatility, Sharpe ratio for each bucket
+- [ ] **Visualization**: Create charts showing performance by liquidity bucket
+- [ ] **Insights Documentation**: Document findings about liquidity-performance relationship
 
 #### Validation:
 - [x] Universe size increased appropriately
@@ -312,15 +325,17 @@ jupyter nbconvert --to notebook --execute 09_production_strategy_backtest.ipynb
 3. ✅ **Risk Evaluation** - Assessed performance impact of threshold change
 4. ✅ **Validation Notebook** - Created comprehensive backtesting validation notebook
 5. ✅ **Backtesting Script Updates** - Updated all production backtesting scripts to 3B VND
+6. ✅ **Unrestricted Universe Data Extraction** - Extracted complete dataset for liquidity analysis
 
 ### Current Tasks:
-1. **Engine Validation** - Verify ADTV calculation logic in engines
-2. **Final Documentation** - Update all relevant documentation
+1. **Liquidity Bucket Analysis** - Run performance analysis by ADTV buckets
+2. **Engine Validation** - Verify ADTV calculation logic in engines
+3. **Final Documentation** - Update all relevant documentation
 
 ### Next Tasks:
-1. **Production Implementation** - Apply changes to production backtesting scripts
-2. **Performance Monitoring** - Monitor performance metrics during transition
-3. **Rollout Planning** - Plan phased rollout of 3B VND threshold
+1. **Performance Analysis** - Complete liquidity bucket performance analysis
+2. **Production Implementation** - Apply changes to production backtesting scripts
+3. **Performance Monitoring** - Monitor performance metrics during transition
 
 ---
 
