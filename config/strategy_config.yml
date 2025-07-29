@@ -170,7 +170,7 @@ backtesting:
   
   # Universe constraints
   min_market_cap: 1000e9   # 1T VND
-  min_liquidity: 1e9       # 1B VND daily volume
+  min_liquidity: 3e9       # 3B VND daily volume (Updated from 1B VND)
   max_position_size: 0.05  # 5% per position
   
   # Risk management

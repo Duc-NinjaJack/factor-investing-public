@@ -5,7 +5,7 @@
 data:
   min_price: 5000  # Minimum stock price in VND
   min_market_cap: 5_000_000_000  # 5B VND minimum market cap
-  min_volume: 100000  # Minimum daily volume
+  min_volume: 300000  # Minimum daily volume (Updated to align with 3B VND liquidity)
   lookback_days: 252  # Default lookback period for calculations
   
 # Portfolio construction parameters
