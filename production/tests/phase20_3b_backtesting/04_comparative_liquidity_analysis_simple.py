@@ -419,10 +419,10 @@ class SimplifiedLiquidityAnalyzer:
         plt.xticks(rotation=45)
         
         plt.tight_layout()
-        plt.savefig('simplified_comparative_liquidity_analysis.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/simplified_comparative_liquidity_analysis.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Visualizations saved to simplified_comparative_liquidity_analysis.png")
+        logger.info("✅ Visualizations saved to img/simplified_comparative_liquidity_analysis.png")
     
     def generate_comparison_report(self, universe_analysis: Dict, survival_data: pd.DataFrame, sector_data: pd.DataFrame) -> str:
         """Generate comprehensive comparison report."""
@@ -558,9 +558,9 @@ class SimplifiedLiquidityAnalyzer:
             with open('simplified_comparative_liquidity_analysis_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
-            logger.info("✅ Complete analysis finished successfully!")
+            logger.info("✅ Complete simplified analysis finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - simplified_comparative_liquidity_analysis.png")
+            logger.info("   - img/simplified_comparative_liquidity_analysis.png")
             logger.info("   - simplified_comparative_liquidity_analysis_report.md")
             logger.info("   - simplified_comparative_liquidity_analysis_results.pkl")
             

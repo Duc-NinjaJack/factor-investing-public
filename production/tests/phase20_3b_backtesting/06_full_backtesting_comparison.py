@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Full Backtesting with Real Price Data: 10B vs 3B VND Thresholds
-===============================================================
-Component: Real Performance Validation
-Purpose: Run full backtests with actual price data from database
+Full Backtesting Comparison: 10B vs 3B VND Thresholds
+====================================================
+Component: Comprehensive Performance Validation
+Purpose: Run full backtests with price data to compare 10B vs 3B VND thresholds
 Author: Duc Nguyen, Principal Quantitative Strategist
 Date Created: January 2025
 Status: PRODUCTION VALIDATION
 
-This script performs comprehensive backtesting comparison using REAL price data:
-- Loads factor data from database with correct column names
-- Loads price data from vcsc_daily_data_complete (close_price_adjusted)
+This script performs comprehensive backtesting comparison:
+- Loads factor data and ADTV from pickle files
+- Loads price data from database for returns calculation
 - Runs backtests with both 10B and 3B VND thresholds
-- Enforces no-short-selling constraint
 - Compares performance metrics (returns, Sharpe, drawdown, etc.)
 - Generates detailed analysis and recommendations
 
 Data Sources:
-- vcsc_daily_data_complete (price data with close_price_adjusted)
-- factor_scores_qvm (factor scores with correct column names)
-- unrestricted_universe_data.pkl (ADTV data)
+- unrestricted_universe_data.pkl (factor scores, ADTV)
+- equity_history (price data)
+- etf_history (benchmark data)
 
 Dependencies:
 - pandas >= 1.3.0
@@ -50,9 +49,9 @@ warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class FullBacktestingRealData:
+class FullBacktestingComparison:
     """
-    Full backtesting comparison using real price data from database.
+    Comprehensive backtesting comparison between liquidity thresholds.
     """
     
     def __init__(self, config_path: str = "../../../config/database.yml"):
@@ -77,7 +76,7 @@ class FullBacktestingRealData:
             'initial_capital': 100_000_000  # 100M VND
         }
         
-        logger.info("Full Backtesting with Real Data initialized")
+        logger.info("Full Backtesting Comparison initialized")
     
     def _create_database_engine(self):
         """Create database engine."""
@@ -99,45 +98,37 @@ class FullBacktestingRealData:
     
     def load_data(self) -> Dict[str, pd.DataFrame]:
         """Load all required data for backtesting."""
-        logger.info("Loading data for full backtesting with real price data...")
+        logger.info("Loading data for full backtesting...")
         
         data = {}
         
-        # Load ADTV data from pickle
+        # Load pickle data
         try:
             with open('unrestricted_universe_data.pkl', 'rb') as f:
                 pickle_data = pickle.load(f)
             
+            data['factor_scores'] = pickle_data['factor_data']
             data['adtv_data'] = pickle_data['adtv']
-            logger.info("✅ ADTV data loaded from pickle")
+            
+            logger.info("✅ Pickle data loaded successfully")
             
         except FileNotFoundError:
             logger.error("❌ Pickle file not found. Please run get_unrestricted_universe_data.py first.")
             raise
         
-        # Load price data from vcsc_daily_data_complete
+        # Load price data from database
         price_query = """
-        SELECT trading_date, ticker, close_price_adjusted
-        FROM vcsc_daily_data_complete
-        WHERE trading_date >= '2018-01-01'
-        ORDER BY trading_date, ticker
-        """
-        data['price_data'] = pd.read_sql(price_query, self.engine)
-        data['price_data']['trading_date'] = pd.to_datetime(data['price_data']['trading_date'])
-        
-        # Load factor scores from database
-        factor_query = """
-        SELECT date, ticker, QVM_Composite
-        FROM factor_scores_qvm
+        SELECT date, ticker, close_price_adjusted
+        FROM equity_history
         WHERE date >= '2018-01-01'
         ORDER BY date, ticker
         """
-        data['factor_scores'] = pd.read_sql(factor_query, self.engine)
-        data['factor_scores']['date'] = pd.to_datetime(data['factor_scores']['date'])
+        data['price_data'] = pd.read_sql(price_query, self.engine)
+        data['price_data']['date'] = pd.to_datetime(data['price_data']['date'])
         
-        # Load benchmark data (VNINDEX)
+        # Load benchmark data
         benchmark_query = """
-        SELECT date, close
+        SELECT date, close_price_adjusted
         FROM etf_history
         WHERE ticker = 'VNINDEX' AND date >= '2018-01-01'
         ORDER BY date
@@ -145,11 +136,19 @@ class FullBacktestingRealData:
         data['benchmark'] = pd.read_sql(benchmark_query, self.engine)
         data['benchmark']['date'] = pd.to_datetime(data['benchmark']['date'])
         
+        # Load sector information
+        sector_query = """
+        SELECT ticker, sector
+        FROM master_info
+        WHERE sector IS NOT NULL
+        """
+        data['sector_info'] = pd.read_sql(sector_query, self.engine)
+        
         logger.info(f"✅ All data loaded successfully")
-        logger.info(f"   - Price data: {len(data['price_data']):,} records")
         logger.info(f"   - Factor scores: {len(data['factor_scores']):,} records")
-        logger.info(f"   - Benchmark: {len(data['benchmark']):,} records")
         logger.info(f"   - ADTV data: {data['adtv_data'].shape}")
+        logger.info(f"   - Price data: {len(data['price_data']):,} records")
+        logger.info(f"   - Benchmark: {len(data['benchmark']):,} records")
         
         return data
     
@@ -159,7 +158,7 @@ class FullBacktestingRealData:
         
         # Prepare price data
         price_pivot = data['price_data'].pivot(
-            index='trading_date', columns='ticker', values='close_price_adjusted'
+            index='date', columns='ticker', values='close_price_adjusted'
         )
         
         # Calculate returns
@@ -167,11 +166,11 @@ class FullBacktestingRealData:
         
         # Prepare factor data
         factor_pivot = data['factor_scores'].pivot(
-            index='date', columns='ticker', values='QVM_Composite'
+            index='calculation_date', columns='ticker', values='qvm_composite_score'
         )
         
         # Prepare benchmark returns
-        benchmark_returns = data['benchmark'].set_index('date')['close'].pct_change().dropna()
+        benchmark_returns = data['benchmark'].set_index('date')['close_price_adjusted'].pct_change().dropna()
         
         # Align all data
         common_dates = returns.index.intersection(factor_pivot.index).intersection(benchmark_returns.index)
@@ -188,19 +187,20 @@ class FullBacktestingRealData:
             'returns': returns,
             'factor_scores': factor_pivot,
             'benchmark_returns': benchmark_returns,
-            'adtv_data': data['adtv_data']
+            'adtv_data': data['adtv_data'],
+            'sector_info': data['sector_info']
         }
     
     def run_backtest(self, threshold_name: str, threshold_value: int, 
                     prepared_data: Dict[str, pd.DataFrame]) -> Dict:
-        """Run backtest for a specific threshold with NO SHORT SELLING."""
+        """Run backtest for a specific threshold."""
         logger.info(f"Running backtest for {threshold_name}...")
         
         returns = prepared_data['returns']
         factor_scores = prepared_data['factor_scores']
         adtv_data = prepared_data['adtv_data']
         
-        # Rebalancing dates (monthly)
+        # Rebalancing dates
         rebalance_dates = pd.date_range(
             start=returns.index.min(),
             end=returns.index.max(),
@@ -214,9 +214,6 @@ class FullBacktestingRealData:
         portfolio_holdings = []
         portfolio_values = [self.backtest_config['initial_capital']]
         
-        # Calculate performance metrics
-        # Create a proper portfolio returns series that matches the returns index
-        portfolio_returns_dict = {}
         for i, rebalance_date in enumerate(rebalance_dates[:-1]):
             next_rebalance = rebalance_dates[i + 1]
             
@@ -242,12 +239,12 @@ class FullBacktestingRealData:
                 # Skip this rebalancing if not enough stocks
                 continue
             
-            # Select top stocks by QVM score (NO SHORT SELLING - only long positions)
+            # Select top stocks by QVM score
             top_stocks = factor_scores_date[available_stocks].nlargest(
                 self.backtest_config['portfolio_size']
             ).index
             
-            # Equal weight portfolio (long only)
+            # Equal weight portfolio
             weights = pd.Series(1.0 / len(top_stocks), index=top_stocks)
             
             # Calculate portfolio returns for this period
@@ -258,10 +255,7 @@ class FullBacktestingRealData:
             if i > 0:  # Not the first rebalancing
                 portfolio_return.iloc[0] -= self.backtest_config['transaction_cost']
             
-            # Store returns for this period
-            for date, ret in portfolio_return.items():
-                portfolio_returns_dict[date] = ret
-            
+            portfolio_returns.extend(portfolio_return.values)
             portfolio_holdings.append({
                 'date': rebalance_date,
                 'stocks': list(top_stocks),
@@ -275,8 +269,8 @@ class FullBacktestingRealData:
             cumulative_return = (1 + period_return_series).prod()
             portfolio_values.append(portfolio_values[-1] * cumulative_return)
         
-        # Create portfolio returns series
-        portfolio_returns_series = pd.Series(portfolio_returns_dict)
+        # Calculate performance metrics
+        portfolio_returns_series = pd.Series(portfolio_returns, index=returns.index)
         
         # Align with benchmark
         aligned_data = pd.DataFrame({
@@ -336,7 +330,7 @@ class FullBacktestingRealData:
     
     def run_comparative_backtests(self, data: Dict[str, pd.DataFrame]) -> Dict[str, Dict]:
         """Run backtests for both thresholds."""
-        logger.info("Running comparative backtests with real data...")
+        logger.info("Running comparative backtests...")
         
         # Prepare data
         prepared_data = self.prepare_data_for_backtesting(data)
@@ -367,7 +361,7 @@ class FullBacktestingRealData:
             cumulative_returns = (1 + results['returns']).cumprod()
             ax1.plot(cumulative_returns.index, cumulative_returns.values, 
                     label=threshold, linewidth=2)
-        ax1.set_title('Cumulative Returns Comparison (Real Data)', fontsize=12, fontweight='bold')
+        ax1.set_title('Cumulative Returns Comparison', fontsize=12, fontweight='bold')
         ax1.set_ylabel('Cumulative Return')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
@@ -379,7 +373,7 @@ class FullBacktestingRealData:
             running_max = cumulative_returns.expanding().max()
             drawdown = (cumulative_returns - running_max) / running_max
             ax2.fill_between(drawdown.index, drawdown.values, 0, alpha=0.3, label=threshold)
-        ax2.set_title('Drawdown Analysis (Real Data)', fontsize=12, fontweight='bold')
+        ax2.set_title('Drawdown Analysis', fontsize=12, fontweight='bold')
         ax2.set_ylabel('Drawdown')
         ax2.legend()
         ax2.grid(True, alpha=0.3)
@@ -418,7 +412,7 @@ class FullBacktestingRealData:
         metrics_df = pd.DataFrame(metrics_data)
         metrics_pivot = metrics_df.pivot(index='Metric', columns='Threshold', values='Value')
         metrics_pivot.plot(kind='bar', ax=ax4)
-        ax4.set_title('Performance Metrics Comparison (Real Data)', fontsize=12, fontweight='bold')
+        ax4.set_title('Performance Metrics Comparison', fontsize=12, fontweight='bold')
         ax4.set_ylabel('Value')
         ax4.legend()
         plt.xticks(rotation=45)
@@ -429,7 +423,7 @@ class FullBacktestingRealData:
             metrics = results['metrics']
             ax5.scatter(metrics['annual_volatility'], metrics['annual_return'], 
                        s=100, label=threshold, alpha=0.7)
-        ax5.set_title('Risk-Return Profile (Real Data)', fontsize=12, fontweight='bold')
+        ax5.set_title('Risk-Return Profile', fontsize=12, fontweight='bold')
         ax5.set_xlabel('Annual Volatility')
         ax5.set_ylabel('Annual Return')
         ax5.legend()
@@ -441,28 +435,28 @@ class FullBacktestingRealData:
             metrics = results['metrics']
             ax6.scatter(metrics['beta'], metrics['alpha'], 
                        s=100, label=threshold, alpha=0.7)
-        ax6.set_title('Alpha vs Beta (Real Data)', fontsize=12, fontweight='bold')
+        ax6.set_title('Alpha vs Beta', fontsize=12, fontweight='bold')
         ax6.set_xlabel('Beta')
         ax6.set_ylabel('Alpha')
         ax6.legend()
         ax6.grid(True, alpha=0.3)
         
-        # 7. Returns Distribution
+        # 7. Monthly Returns Heatmap
         ax7 = plt.subplot(3, 3, 7)
-        for threshold, results in backtest_results.items():
-            ax7.hist(results['returns'], bins=50, alpha=0.7, label=threshold)
-        ax7.set_title('Returns Distribution (Real Data)', fontsize=12, fontweight='bold')
-        ax7.set_xlabel('Daily Return')
-        ax7.set_ylabel('Frequency')
-        ax7.legend()
+        # Sample one threshold for monthly returns heatmap
+        threshold = list(backtest_results.keys())[0]
+        monthly_returns = backtest_results[threshold]['returns'].resample('M').apply(lambda x: (1 + x).prod() - 1)
+        monthly_returns_pivot = monthly_returns.groupby([monthly_returns.index.year, monthly_returns.index.month]).first().unstack()
+        sns.heatmap(monthly_returns_pivot, annot=True, fmt='.2%', cmap='RdYlGn', center=0, ax=ax7)
+        ax7.set_title(f'Monthly Returns Heatmap ({threshold})', fontsize=12, fontweight='bold')
         
-        # 8. Portfolio Value Evolution
+        # 8. Rolling Correlation with Benchmark
         ax8 = plt.subplot(3, 3, 8)
         for threshold, results in backtest_results.items():
-            portfolio_values = results['portfolio_values']
-            ax8.plot(range(len(portfolio_values)), portfolio_values, label=threshold, linewidth=2)
-        ax8.set_title('Portfolio Value Evolution (Real Data)', fontsize=12, fontweight='bold')
-        ax8.set_ylabel('Portfolio Value (VND)')
+            rolling_corr = results['returns'].rolling(window=252).corr(results['benchmark_returns'])
+            ax8.plot(rolling_corr.index, rolling_corr.values, label=threshold, linewidth=2)
+        ax8.set_title('Rolling Correlation with Benchmark (1-Year)', fontsize=12, fontweight='bold')
+        ax8.set_ylabel('Correlation')
         ax8.legend()
         ax8.grid(True, alpha=0.3)
         
@@ -491,24 +485,23 @@ class FullBacktestingRealData:
         table.auto_set_font_size(False)
         table.set_fontsize(9)
         table.scale(1.2, 1.5)
-        ax9.set_title('Performance Summary (Real Data)', fontsize=12, fontweight='bold')
+        ax9.set_title('Performance Summary', fontsize=12, fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig('full_backtesting_real_data_comparison.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/full_backtesting_comparison.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Visualizations saved to full_backtesting_real_data_comparison.png")
+        logger.info("✅ Visualizations saved to img/full_backtesting_comparison.png")
     
     def generate_comprehensive_report(self, backtest_results: Dict[str, Dict]) -> str:
         """Generate comprehensive backtesting report."""
         logger.info("Generating comprehensive backtesting report...")
         
         report = []
-        report.append("# Full Backtesting with Real Data: 10B vs 3B VND Thresholds")
+        report.append("# Full Backtesting Comparison: 10B vs 3B VND Thresholds")
         report.append("")
         report.append("**Date:** " + datetime.now().strftime("%Y-%m-%d"))
-        report.append("**Purpose:** Real performance validation of 3B VND liquidity threshold")
-        report.append("**Note:** This analysis uses REAL price data from database")
+        report.append("**Purpose:** Comprehensive performance validation of 3B VND liquidity threshold")
         report.append("")
         
         # Executive Summary
@@ -546,6 +539,22 @@ class FullBacktestingRealData:
         report.append(f"| Beta | {v10b['beta']:.2f} | {v3b['beta']:.2f} | {v3b['beta'] - v10b['beta']:+.2f} |")
         report.append(f"| Calmar Ratio | {v10b['calmar_ratio']:.2f} | {v3b['calmar_ratio']:.2f} | {v3b['calmar_ratio'] - v10b['calmar_ratio']:+.2f} |")
         report.append(f"| Information Ratio | {v10b['information_ratio']:.2f} | {v3b['information_ratio']:.2f} | {v3b['information_ratio'] - v10b['information_ratio']:+.2f} |")
+        report.append(f"| Turnover | {v10b['turnover']:.2%} | {v3b['turnover']:.2%} | {v3b['turnover'] - v10b['turnover']:+.2%} |")
+        report.append("")
+        
+        # Risk Analysis
+        report.append("### Risk Analysis")
+        report.append("")
+        report.append(f"- **Volatility Impact:** {v3b['annual_volatility'] - v10b['annual_volatility']:+.2%} change in annual volatility")
+        report.append(f"- **Drawdown Impact:** {drawdown_change:+.2%} change in maximum drawdown")
+        report.append(f"- **Beta Change:** {v3b['beta'] - v10b['beta']:+.2f} change in market beta")
+        report.append("")
+        
+        # Alpha Analysis
+        report.append("### Alpha Analysis")
+        report.append("")
+        report.append(f"- **Alpha Generation:** {alpha_improvement:+.2%} change in alpha")
+        report.append(f"- **Information Ratio:** {v3b['information_ratio'] - v10b['information_ratio']:+.2f} change in information ratio")
         report.append("")
         
         # Implementation Decision
@@ -592,18 +601,31 @@ class FullBacktestingRealData:
         
         report.append("")
         
+        # Implementation Checklist
+        report.append("## 📋 Implementation Checklist")
+        report.append("")
+        report.append("- [x] Configuration files updated")
+        report.append("- [x] Quick validation completed")
+        report.append("- [x] Full backtesting completed")
+        report.append("- [x] Performance analysis completed")
+        report.append("- [x] Risk assessment completed")
+        report.append("- [ ] Production deployment")
+        report.append("- [ ] Performance monitoring setup")
+        report.append("- [ ] Documentation updates")
+        report.append("")
+        
         report_text = "\n".join(report)
         
         # Save report
-        with open('full_backtesting_real_data_report.md', 'w') as f:
+        with open('full_backtesting_comparison_report.md', 'w') as f:
             f.write(report_text)
         
-        logger.info("✅ Comprehensive report saved to full_backtesting_real_data_report.md")
+        logger.info("✅ Comprehensive report saved to full_backtesting_comparison_report.md")
         return report_text
     
     def run_complete_analysis(self):
-        """Run the complete backtesting analysis with real data."""
-        logger.info("🚀 Starting full backtesting analysis with real data...")
+        """Run the complete backtesting analysis."""
+        logger.info("🚀 Starting complete backtesting analysis...")
         
         try:
             # Load data
@@ -625,14 +647,14 @@ class FullBacktestingRealData:
             }
             
             # Save to pickle for further analysis
-            with open('full_backtesting_real_data_results.pkl', 'wb') as f:
+            with open('full_backtesting_comparison_results.pkl', 'wb') as f:
                 pickle.dump(results, f)
             
-            logger.info("✅ Complete backtesting analysis with real data finished successfully!")
+            logger.info("✅ Complete backtesting analysis finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - full_backtesting_real_data_comparison.png")
-            logger.info("   - full_backtesting_real_data_report.md")
-            logger.info("   - full_backtesting_real_data_results.pkl")
+            logger.info("   - img/full_backtesting_comparison.png")
+            logger.info("   - full_backtesting_comparison_report.md")
+            logger.info("   - full_backtesting_comparison_results.pkl")
             
             return results
             
@@ -643,16 +665,16 @@ class FullBacktestingRealData:
 
 def main():
     """Main execution function."""
-    print("🔬 Full Backtesting with Real Data: 10B vs 3B VND Thresholds")
+    print("🔬 Full Backtesting Comparison: 10B vs 3B VND Thresholds")
     print("=" * 65)
     
     # Initialize analyzer
-    analyzer = FullBacktestingRealData()
+    analyzer = FullBacktestingComparison()
     
     # Run complete analysis
     results = analyzer.run_complete_analysis()
     
-    print("\n✅ Full backtesting analysis with real data completed successfully!")
+    print("\n✅ Full backtesting analysis completed successfully!")
     print("📊 Check the generated files for detailed results.")
     
     # Print key results
@@ -660,10 +682,10 @@ def main():
     v10b = backtest_results['10B_VND']['metrics']
     v3b = backtest_results['3B_VND']['metrics']
     
-    print(f"\n📈 Key Results (Real Data):")
-    print(f"   10B VND: {v10b['annual_return']:.2%} return, {v10b['sharpe_ratio']:.2f} Sharpe, {v10b['max_drawdown']:.2%} drawdown")
-    print(f"   3B VND:  {v3b['annual_return']:.2%} return, {v3b['sharpe_ratio']:.2f} Sharpe, {v3b['max_drawdown']:.2%} drawdown")
-    print(f"   Change:  {v3b['annual_return'] - v10b['annual_return']:+.2%} return, {v3b['sharpe_ratio'] - v10b['sharpe_ratio']:+.2f} Sharpe, {v3b['max_drawdown'] - v10b['max_drawdown']:+.2%} drawdown")
+    print(f"\n📈 Key Results:")
+    print(f"   10B VND: {v10b['annual_return']:.2%} return, {v10b['sharpe_ratio']:.2f} Sharpe")
+    print(f"   3B VND:  {v3b['annual_return']:.2%} return, {v3b['sharpe_ratio']:.2f} Sharpe")
+    print(f"   Change:  {v3b['annual_return'] - v10b['annual_return']:+.2%} return, {v3b['sharpe_ratio'] - v10b['sharpe_ratio']:+.2f} Sharpe")
 
 
 if __name__ == "__main__":

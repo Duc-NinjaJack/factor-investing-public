@@ -354,10 +354,10 @@ class PickleVsRealDataAnalyzer:
         ax4.set_title('Data Completeness Comparison', fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig('pickle_vs_real_data_discrepancies.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/pickle_vs_real_data_discrepancies.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Discrepancy visualizations saved to pickle_vs_real_data_discrepancies.png")
+        logger.info("✅ Discrepancy visualizations saved to img/pickle_vs_real_data_discrepancies.png")
     
     def generate_discrepancy_report(self, factor_comparisons, adtv_comparisons, completeness_analysis):
         """Generate comprehensive discrepancy report."""
@@ -533,7 +533,7 @@ class PickleVsRealDataAnalyzer:
             
             logger.info("✅ Complete discrepancy analysis finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - pickle_vs_real_data_discrepancies.png")
+            logger.info("   - img/pickle_vs_real_data_discrepancies.png")
             logger.info("   - pickle_vs_real_data_discrepancy_report.md")
             logger.info("   - pickle_vs_real_data_analysis_results.pkl")
             

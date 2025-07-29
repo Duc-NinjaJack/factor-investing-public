@@ -283,10 +283,10 @@ class CorrectedDiscrepancyAnalyzer:
         ax4.set_title('Comparison Summary', fontweight='bold')
         
         plt.tight_layout()
-        plt.savefig('corrected_discrepancy_analysis.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/corrected_discrepancy_analysis.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Corrected comparison visualizations saved to corrected_discrepancy_analysis.png")
+        logger.info("✅ Corrected comparison visualizations saved to img/corrected_discrepancy_analysis.png")
     
     def generate_corrected_report(self, factor_comparisons, adtv_comparisons):
         """Generate corrected discrepancy report."""
@@ -466,7 +466,7 @@ class CorrectedDiscrepancyAnalyzer:
             
             logger.info("✅ Complete corrected discrepancy analysis finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - corrected_discrepancy_analysis.png")
+            logger.info("   - img/corrected_discrepancy_analysis.png")
             logger.info("   - corrected_discrepancy_analysis_report.md")
             
             return results

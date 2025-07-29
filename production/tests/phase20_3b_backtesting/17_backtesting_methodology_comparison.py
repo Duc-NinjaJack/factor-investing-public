@@ -293,10 +293,10 @@ class BacktestingMethodologyComparator:
         ax6.set_title('Key Methodology Differences', fontweight='bold', fontsize=14)
         
         plt.tight_layout()
-        plt.savefig('backtesting_methodology_comparison.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/backtesting_methodology_comparison.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Methodology comparison visualizations saved to backtesting_methodology_comparison.png")
+        logger.info("✅ Methodology comparison visualizations saved to img/backtesting_methodology_comparison.png")
     
     def generate_methodology_report(self, simplified_returns, real_returns, stats, methodology_comparison):
         """Generate comprehensive methodology comparison report."""
@@ -518,7 +518,7 @@ class BacktestingMethodologyComparator:
             
             logger.info("✅ Complete methodology comparison finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - backtesting_methodology_comparison.png")
+            logger.info("   - img/backtesting_methodology_comparison.png")
             logger.info("   - backtesting_methodology_comparison_report.md")
             
             return results

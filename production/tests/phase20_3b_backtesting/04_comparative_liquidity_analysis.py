@@ -554,10 +554,10 @@ class ComparativeLiquidityAnalyzer:
         plt.xticks(rotation=45)
         
         plt.tight_layout()
-        plt.savefig('comparative_liquidity_analysis.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/comparative_liquidity_analysis.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Visualizations saved to comparative_liquidity_analysis.png")
+        logger.info("✅ Visualizations saved to img/comparative_liquidity_analysis.png")
     
     def generate_comparison_report(self, universe_analysis: Dict, backtest_results: Dict, survival_data: pd.DataFrame) -> str:
         """Generate comprehensive comparison report."""
@@ -708,7 +708,7 @@ class ComparativeLiquidityAnalyzer:
             
             logger.info("✅ Complete analysis finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - comparative_liquidity_analysis.png")
+            logger.info("   - img/comparative_liquidity_analysis.png")
             logger.info("   - comparative_liquidity_analysis_report.md")
             logger.info("   - comparative_liquidity_analysis_results.pkl")
             

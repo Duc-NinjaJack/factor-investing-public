@@ -86,7 +86,7 @@ The comprehensive analysis of high-scoring stocks distribution across liquidity 
 ### **Analysis Files**
 - `03_high_scoring_stocks_liquidity_analysis.py` - Analysis script
 - `high_scoring_stocks_analysis_results.pkl` - Analysis results data
-- `high_scoring_stocks_analysis.png` - Visualization charts
+- `img/high_scoring_stocks_analysis.png` - Visualization charts
 - `high_scoring_stocks_liquidity_analysis_report.md` - Comprehensive report
 
 ### **Data Files**

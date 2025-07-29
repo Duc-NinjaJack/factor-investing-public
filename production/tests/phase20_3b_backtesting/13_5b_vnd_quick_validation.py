@@ -214,10 +214,10 @@ class FiveBVNDQuickValidator:
                         xytext=(5, 5), textcoords='offset points', fontsize=8)
         
         plt.tight_layout()
-        plt.savefig('5b_vnd_quick_validation.png', dpi=300, bbox_inches='tight')
+        plt.savefig('img/5b_vnd_quick_validation.png', dpi=300, bbox_inches='tight')
         plt.show()
         
-        logger.info("✅ Visualizations saved to 5b_vnd_quick_validation.png")
+        logger.info("✅ Visualizations saved to img/5b_vnd_quick_validation.png")
     
     def generate_report(self, analysis_results, bucket_analysis):
         """Generate comprehensive report."""
@@ -358,7 +358,7 @@ class FiveBVNDQuickValidator:
             
             logger.info("✅ Complete 5B VND quick validation finished successfully!")
             logger.info("📊 Results saved to:")
-            logger.info("   - 5b_vnd_quick_validation.png")
+            logger.info("   - img/5b_vnd_quick_validation.png")
             logger.info("   - 5b_vnd_quick_validation_report.md")
             logger.info("   - 5b_vnd_quick_validation_results.pkl")
             

@@ -351,10 +351,10 @@ def create_visualizations(distribution_df, performance_df):
         axes[1, 1].set_title('Performance Data Not Available')
     
     plt.tight_layout()
-    plt.savefig(Path(__file__).parent / 'high_scoring_stocks_analysis.png', dpi=300, bbox_inches='tight')
+    plt.savefig(Path(__file__).parent / 'img' / 'high_scoring_stocks_analysis.png', dpi=300, bbox_inches='tight')
     plt.show()
     
-    print("✅ Visualizations saved to high_scoring_stocks_analysis.png")
+    print("✅ Visualizations saved to img/high_scoring_stocks_analysis.png")
 
 
 def generate_insights(distribution_df, performance_df):
