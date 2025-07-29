@@ -75,6 +75,65 @@ After running comprehensive backtesting with **real price data** from the databa
    - Less liquid stocks may underperform during market stress
    - Higher correlation during crisis periods
 
+### Data Source Discrepancies
+
+**Critical Finding:** Significant differences between pickle data and real database data were discovered, which explains the discrepancy between simplified and real backtesting results.
+
+#### Data Completeness Comparison
+| Metric | Pickle Data | Database Data | Difference |
+|--------|-------------|---------------|------------|
+| **Date Range** | 2016-01-04 to 2025-07-25 | 2018-05-17 to 2024-07-18 | +2370 dates |
+| **Date Count** | 2,384 dates | 14 dates | +2,370 dates |
+| **Ticker Coverage** | 714 tickers | 20 tickers | +694 tickers |
+| **Common Tickers** | 714 | 20 | 20 overlap |
+
+#### Key Implications
+1. **Different Data Sources:** Pickle data appears to be from a different source or time period than the database
+2. **Limited Overlap:** Only 20 tickers overlap between pickle and database data
+3. **Time Period Mismatch:** Database data covers only 14 dates vs 2,384 in pickle
+4. **Calculation Differences:** Different methodologies may have been used for factor scores and ADTV
+
+#### Impact on Backtesting Results
+- **Simplified Backtesting:** Used pickle data with 2,384 dates and 714 tickers
+- **Real Data Backtesting:** Used database data with 14 dates and 20 tickers
+- **Result:** The simplified backtesting had access to much more comprehensive data, leading to overly optimistic results
+
+#### Sample Data Comparison
+Due to limited overlap, direct comparison of factor scores and ADTV values was not possible. However, the data completeness analysis reveals that:
+
+1. **Pickle Data Advantages:**
+   - Much larger dataset (2,384 vs 14 dates)
+   - Broader ticker coverage (714 vs 20 tickers)
+   - More comprehensive historical data
+
+2. **Database Data Reality:**
+   - Limited to recent time period
+   - Restricted ticker universe
+   - May reflect actual production constraints
+
+#### Random Sample Analysis
+The discrepancy analysis attempted to compare random samples but found insufficient overlap:
+
+**Sampling Results:**
+- **Attempted Sample:** 20 random dates and 20 random tickers
+- **Database Coverage:** Only 14 dates available in database
+- **Ticker Overlap:** Only 20 tickers available in database
+- **Factor Score Comparison:** No overlapping data points found
+- **ADTV Comparison:** No overlapping data points found
+
+**Key Finding:** The pickle data and database data represent fundamentally different datasets with minimal overlap, making direct comparison impossible and explaining the dramatic differences in backtesting results.
+
+#### Data Quality Implications
+1. **Pickle Data:** Comprehensive historical dataset (2016-2025) with 714 tickers
+2. **Database Data:** Limited recent dataset (2018-2024) with 20 tickers
+3. **Impact:** Simplified backtesting used idealized, comprehensive data while real backtesting used constrained, production-like data
+
+#### Recommendations for Future Analysis
+1. **Data Source Alignment:** Ensure all analyses use the same data source
+2. **Validation Framework:** Always validate simplified results with real data
+3. **Methodology Review:** Review simplified backtesting assumptions
+4. **Realistic Constraints:** Apply production-like constraints to all backtesting
+
 ### Universe Analysis
 
 **10B VND Threshold:**
