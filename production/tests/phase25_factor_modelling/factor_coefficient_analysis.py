@@ -46,21 +46,135 @@ class FactorCoefficientAnalyzer:
             return pd.DataFrame()
     
     def get_momentum_factors(self, analysis_date: datetime, universe: list) -> pd.DataFrame:
-        """Create simulated momentum factors for demonstration."""
-        # Create simulated momentum data
-        np.random.seed(42)
+        """Extract actual momentum factors from price data."""
+        # Calculate momentum from actual price data
         momentum_data = []
         
         for ticker in universe:
-            momentum_data.append({
-                'ticker': ticker,
-                '1M': np.random.normal(0.02, 0.08),
-                '3M': np.random.normal(0.06, 0.15),
-                '6M': np.random.normal(0.12, 0.20),
-                '12M': np.random.normal(0.25, 0.30)
-            })
+            try:
+                # Get price data for the ticker
+                price_query = """
+                SELECT trading_date, close_price 
+                FROM vcsc_daily_data_complete 
+                WHERE ticker = %s 
+                AND trading_date <= %s 
+                ORDER BY trading_date DESC 
+                LIMIT 252
+                """
+                
+                price_data = pd.read_sql(price_query, self.engine, params=(ticker, analysis_date))
+                
+                if len(price_data) >= 30:  # Need at least 30 days for 1M momentum
+                    current_price = price_data.iloc[0]['close_price']
+                    
+                    # Calculate momentum periods
+                    momentum_1m = 0
+                    momentum_3m = 0
+                    momentum_6m = 0
+                    momentum_12m = 0
+                    
+                    # 1M momentum (21 trading days)
+                    if len(price_data) >= 21:
+                        price_1m = price_data.iloc[20]['close_price']
+                        momentum_1m = (current_price - price_1m) / price_1m if price_1m > 0 else 0
+                    
+                    # 3M momentum (63 trading days)
+                    if len(price_data) >= 63:
+                        price_3m = price_data.iloc[62]['close_price']
+                        momentum_3m = (current_price - price_3m) / price_3m if price_3m > 0 else 0
+                    
+                    # 6M momentum (126 trading days)
+                    if len(price_data) >= 126:
+                        price_6m = price_data.iloc[125]['close_price']
+                        momentum_6m = (current_price - price_6m) / price_6m if price_6m > 0 else 0
+                    
+                    # 12M momentum (252 trading days)
+                    if len(price_data) >= 252:
+                        price_12m = price_data.iloc[251]['close_price']
+                        momentum_12m = (current_price - price_12m) / price_12m if price_12m > 0 else 0
+                    
+                    momentum_data.append({
+                        'ticker': ticker,
+                        '1M': momentum_1m,
+                        '3M': momentum_3m,
+                        '6M': momentum_6m,
+                        '12M': momentum_12m
+                    })
+                else:
+                    # If insufficient data, use zeros
+                    momentum_data.append({
+                        'ticker': ticker,
+                        '1M': 0,
+                        '3M': 0,
+                        '6M': 0,
+                        '12M': 0
+                    })
+                    
+            except Exception as e:
+                print(f"Error calculating momentum for {ticker}: {e}")
+                # Use zeros for failed calculations
+                momentum_data.append({
+                    'ticker': ticker,
+                    '1M': 0,
+                    '3M': 0,
+                    '6M': 0,
+                    '12M': 0
+                })
         
         return pd.DataFrame(momentum_data)
+    
+    def get_forward_returns(self, analysis_date: datetime, universe: list) -> pd.DataFrame:
+        """Get actual 1-month forward returns from price data."""
+        forward_returns_data = []
+        
+        for ticker in universe:
+            try:
+                # Get current price and future price (1 month later)
+                current_date = analysis_date
+                future_date = current_date + timedelta(days=30)
+                
+                # Get current price
+                current_query = """
+                SELECT close_price 
+                FROM vcsc_daily_data_complete 
+                WHERE ticker = %s AND trading_date = %s
+                """
+                current_result = pd.read_sql(current_query, self.engine, params=(ticker, current_date))
+                
+                # Get future price (closest available date)
+                future_query = """
+                SELECT close_price, trading_date
+                FROM vcsc_daily_data_complete 
+                WHERE ticker = %s AND trading_date >= %s
+                ORDER BY trading_date ASC
+                LIMIT 1
+                """
+                future_result = pd.read_sql(future_query, self.engine, params=(ticker, future_date))
+                
+                if len(current_result) > 0 and len(future_result) > 0:
+                    current_price = current_result.iloc[0]['close_price']
+                    future_price = future_result.iloc[0]['close_price']
+                    
+                    if current_price > 0:
+                        forward_return = (future_price - current_price) / current_price
+                    else:
+                        forward_return = 0
+                else:
+                    forward_return = 0
+                    
+                forward_returns_data.append({
+                    'ticker': ticker,
+                    'forward_return': forward_return
+                })
+                
+            except Exception as e:
+                print(f"Error calculating forward returns for {ticker}: {e}")
+                forward_returns_data.append({
+                    'ticker': ticker,
+                    'forward_return': 0
+                })
+        
+        return pd.DataFrame(forward_returns_data)
     
     def normalize_factors(self, factors_df: pd.DataFrame) -> pd.DataFrame:
         """Normalize factors using sector-neutral z-scores."""
@@ -272,7 +386,8 @@ class FactorCoefficientAnalyzer:
     def run_analysis(self, analysis_date: datetime = None):
         """Run complete factor coefficient analysis."""
         if analysis_date is None:
-            analysis_date = datetime(2024, 12, 31)
+            # Use a date that allows for forward returns calculation
+            analysis_date = datetime(2024, 12, 18)
         
         print(f"Running factor coefficient analysis for {analysis_date}")
         
@@ -309,15 +424,20 @@ class FactorCoefficientAnalyzer:
         print("Sample normalized factors:")
         print(normalized_factors.head())
         
-        # Create simulated forward returns (for demonstration)
-        np.random.seed(42)
-        normalized_factors['forward_return'] = np.random.normal(0.05, 0.15, len(normalized_factors))
+        # Get actual forward returns
+        forward_returns = self.get_forward_returns(analysis_date, universe)
+        
+        # Merge with normalized factors
+        normalized_factors = normalized_factors.merge(forward_returns, on='ticker', how='inner')
         
         print("Columns in normalized_factors:")
         print(normalized_factors.columns.tolist())
         
-        # Create forward returns DataFrame
-        forward_returns_df = normalized_factors[['ticker', 'forward_return']]
+        print(f"Forward returns summary:")
+        print(f"Mean: {normalized_factors['forward_return'].mean():.4f}")
+        print(f"Std: {normalized_factors['forward_return'].std():.4f}")
+        print(f"Min: {normalized_factors['forward_return'].min():.4f}")
+        print(f"Max: {normalized_factors['forward_return'].max():.4f}")
         
         # Run regression directly on normalized_factors since it already has forward_return
         results = self.run_regression(normalized_factors)
@@ -347,8 +467,8 @@ def main():
     """Main execution function."""
     analyzer = FactorCoefficientAnalyzer()
     
-    # Run analysis for recent date
-    analysis_date = datetime(2024, 12, 31)
+    # Run analysis for date with sufficient historical data
+    analysis_date = datetime(2024, 12, 18)
     
     results = analyzer.run_analysis(analysis_date)
     
