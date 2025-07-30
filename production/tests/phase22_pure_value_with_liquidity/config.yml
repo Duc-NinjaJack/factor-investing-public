@@ -1,0 +1,204 @@
+# Phase 22: Weighted Composite Real Data Backtesting Configuration
+# =================================================================
+
+# Strategy Configuration
+strategy:
+  # Weighting scheme (from Phase 16 successful implementation)
+  weighting_scheme:
+    Value: 0.6      # 60% Value factor - dominant factor
+    Quality: 0.2    # 20% Quality factor - stability
+    Reversal: 0.2   # 20% Reversal factor (inverted momentum) - contrarian
+  
+  # Portfolio construction parameters
+  portfolio:
+    size: 25                    # Target portfolio size
+    quintile_selection: 0.8     # Top 20% selection (Quintile 5)
+    equal_weighting: true       # Equal weights within portfolio
+    max_sector_weight: 0.4      # Maximum sector concentration
+  
+  # Rebalancing configuration
+  rebalancing:
+    frequency: 'M'              # Monthly rebalancing
+    lookback_days: 22          # Days to look back for data
+    forward_fill_days: 5       # Days to forward fill missing data
+  
+  # Transaction costs
+  transaction_costs:
+    per_trade: 0.002           # 20 bps per trade
+    slippage: 0.001            # 10 bps slippage
+    minimum_trade_size: 1000000 # 1M VND minimum trade
+
+# Liquidity thresholds
+liquidity:
+  thresholds:
+    10B_VND: 10000000000       # 10 Billion VND ADTV
+    3B_VND: 3000000000         # 3 Billion VND ADTV
+    5B_VND: 5000000000         # 5 Billion VND ADTV (alternative)
+  
+  # ADTV calculation parameters
+  adtv:
+    lookback_days: 63          # 63-day average (quarterly)
+    minimum_coverage: 0.8      # 80% trading day coverage required
+    forward_fill: true         # Forward fill missing ADTV data
+
+# Data configuration
+data:
+  # Database tables
+  tables:
+    factor_scores: 'factor_scores_qvm'
+    price_data: 'vcsc_daily_data_complete'
+    benchmark: 'etf_history'
+    benchmark_ticker: 'VNINDEX'
+  
+  # Date ranges
+  date_ranges:
+    start_date: '2018-01-01'
+    end_date: '2025-01-01'
+    min_data_points: 50        # Minimum stocks required for backtest
+  
+  # Factor data
+  factors:
+    quality: 'Quality_Composite'
+    value: 'Value_Composite'
+    momentum: 'Momentum_Composite'
+    qvm: 'QVM_Composite'
+
+# Performance analysis
+performance:
+  # Risk-free rate (Vietnam government bond yield)
+  risk_free_rate: 0.05         # 5% annual
+  
+  # Rolling window parameters
+  rolling:
+    sharpe_window: 252         # 1-year rolling Sharpe
+    volatility_window: 60      # 60-day rolling volatility
+    correlation_window: 120    # 120-day rolling correlation
+  
+  # Drawdown analysis
+  drawdown:
+    peak_method: 'expanding'   # Expanding window peak
+    recovery_threshold: 0.01   # 1% recovery threshold
+  
+  # Attribution analysis
+  attribution:
+    factor_decomposition: true # Decompose returns by factor
+    sector_analysis: true      # Sector attribution
+    style_analysis: true       # Style factor analysis
+
+# Visualization settings
+visualization:
+  # Plot styling
+  style:
+    figure_size: [20, 16]      # Figure dimensions
+    dpi: 300                   # Resolution
+    color_palette: 'husl'      # Color scheme
+  
+  # Subplot layout
+  layout:
+    rows: 3
+    columns: 3
+    subplot_titles: [
+      'Cumulative Returns',
+      'Drawdown Analysis',
+      'Rolling Sharpe Ratio',
+      'Performance Metrics',
+      'Monthly Returns Heatmap',
+      'Portfolio Size Evolution',
+      'Risk-Return Scatter',
+      'Benchmark Comparison',
+      'Factor Weights'
+    ]
+  
+  # Save settings
+  save:
+    format: 'png'
+    dpi: 300
+    bbox_inches: 'tight'
+    transparent: false
+
+# Logging configuration
+logging:
+  level: 'INFO'                # Log level: DEBUG, INFO, WARNING, ERROR
+  format: '%(asctime)s - %(levelname)s - %(message)s'
+  file: 'phase22_backtest.log' # Log file name
+  console: true                # Output to console
+
+# Output configuration
+output:
+  # File naming
+  naming:
+    plots: 'weighted_composite_backtesting_plots_{timestamp}.png'
+    report: 'weighted_composite_backtesting_report_{timestamp}.txt'
+    results: 'weighted_composite_backtesting_results_{timestamp}.pkl'
+  
+  # Save options
+  save:
+    plots: true                # Save performance plots
+    report: true               # Save text report
+    results: true              # Save results pickle
+    intermediate: false        # Save intermediate calculations
+  
+  # Report sections
+  report_sections:
+    strategy_overview: true
+    performance_summary: true
+    detailed_analysis: true
+    risk_metrics: true
+    attribution_analysis: true
+    recommendations: true
+
+# Validation settings
+validation:
+  # Data quality checks
+  data_quality:
+    min_coverage: 0.7          # Minimum data coverage
+    max_missing_days: 30       # Maximum consecutive missing days
+    outlier_threshold: 3.0     # Standard deviations for outliers
+  
+  # Performance validation
+  performance:
+    min_sharpe: -2.0           # Minimum acceptable Sharpe ratio
+    max_drawdown: -0.8         # Maximum acceptable drawdown
+    min_annual_return: -0.5    # Minimum acceptable annual return
+  
+  # Consistency checks
+  consistency:
+    check_factor_correlation: true
+    check_weight_sum: true     # Ensure weights sum to 1.0
+    check_portfolio_size: true # Ensure portfolio size is reasonable
+
+# Advanced settings
+advanced:
+  # Parallel processing
+  parallel:
+    enabled: false             # Enable parallel processing
+    n_jobs: -1                # Number of jobs (-1 for all cores)
+  
+  # Memory optimization
+  memory:
+    chunk_size: 1000          # Process data in chunks
+    cleanup_intermediate: true # Clean up intermediate data
+  
+  # Caching
+  caching:
+    enabled: true              # Enable result caching
+    cache_dir: './cache'       # Cache directory
+    max_cache_size: '1GB'      # Maximum cache size
+
+# Environment-specific settings
+environments:
+  development:
+    logging_level: 'DEBUG'
+    save_intermediate: true
+    parallel_enabled: false
+  
+  production:
+    logging_level: 'INFO'
+    save_intermediate: false
+    parallel_enabled: true
+  
+  testing:
+    logging_level: 'WARNING'
+    save_intermediate: false
+    parallel_enabled: false
+    use_mock_data: true
