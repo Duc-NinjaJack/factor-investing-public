@@ -1,0 +1,50 @@
+================================================================================
+REAL DATA BACKTESTING REPORT
+================================================================================
+Generated: 2025-07-30 23:58:25
+
+SUMMARY STATISTICS
+----------------------------------------
+Threshold Annual Return Sharpe Ratio Max Drawdown   Alpha Beta Total Return
+  10B_VND         0.49%         0.02      -31.41% -12.96% 1.09       -2.27%
+   3B_VND         1.01%         0.05      -33.68% -11.98% 1.05       -1.72%
+
+DETAILED ANALYSIS
+----------------------------------------
+
+10B_VND THRESHOLD:
+  Annual Return: 0.49%
+  Annual Volatility: 20.73%
+  Sharpe Ratio: 0.02
+  Maximum Drawdown: -31.41%
+  Alpha: -12.96%
+  Beta: 1.09
+  Calmar Ratio: 0.02
+  Information Ratio: -0.63
+  Total Return: -2.27%
+  Benchmark Return: 12.32%
+  Turnover: 138.80%
+
+3B_VND THRESHOLD:
+  Annual Return: 1.01%
+  Annual Volatility: 21.23%
+  Sharpe Ratio: 0.05
+  Maximum Drawdown: -33.68%
+  Alpha: -11.98%
+  Beta: 1.05
+  Calmar Ratio: 0.03
+  Information Ratio: -0.56
+  Total Return: -1.72%
+  Benchmark Return: 12.32%
+  Turnover: 138.80%
+
+RECOMMENDATIONS
+----------------------------------------
+Best Performing Threshold: 3B_VND
+  Sharpe Ratio: 0.05
+  Annual Return: 1.01%
+  Max Drawdown: -33.68%
+❌ Strategy shows poor risk-adjusted performance
+❌ Strategy generates minimal alpha
+
+================================================================================

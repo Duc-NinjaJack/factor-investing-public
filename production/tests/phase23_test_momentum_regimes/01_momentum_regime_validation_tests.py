@@ -23,8 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Add paths for imports
-sys.path.append('../../../production/database')
-sys.path.append('../../../production/engine')
+sys.path.append('../../../production')
 
 try:
     from database.connection import get_engine
@@ -59,6 +58,33 @@ def get_universe(engine, analysis_date, limit=100):
     except Exception as e:
         print(f"❌ Failed to get universe: {e}")
         return []
+
+def _calculate_spearman_correlation(x, y):
+    """Calculate Spearman correlation manually to avoid scipy dependency."""
+    try:
+        # Get ranks
+        x_ranks = x.rank()
+        y_ranks = y.rank()
+        
+        # Calculate correlation using Pearson formula on ranks
+        n = len(x)
+        if n < 2:
+            return 0.0
+            
+        x_mean = x_ranks.mean()
+        y_mean = y_ranks.mean()
+        
+        numerator = ((x_ranks - x_mean) * (y_ranks - y_mean)).sum()
+        x_var = ((x_ranks - x_mean) ** 2).sum()
+        y_var = ((y_ranks - y_mean) ** 2).sum()
+        
+        if x_var == 0 or y_var == 0:
+            return 0.0
+            
+        correlation = numerator / (x_var * y_var) ** 0.5
+        return correlation
+    except:
+        return 0.0
 
 def calculate_momentum_ic(engine, analysis_date, universe, forward_months=1):
     try:
@@ -99,7 +125,9 @@ def calculate_momentum_ic(engine, analysis_date, universe, forward_months=1):
             return None
         factor_series = pd.Series([momentum_scores[t] for t in common_tickers], index=list(common_tickers))
         return_series = pd.Series([forward_returns[t] for t in common_tickers], index=list(common_tickers))
-        ic = factor_series.corr(return_series, method='spearman')
+        
+        # Calculate Spearman correlation manually to avoid scipy dependency
+        ic = _calculate_spearman_correlation(factor_series, return_series)
         return {
             'date': analysis_date,
             'ic': ic,

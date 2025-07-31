@@ -22,8 +22,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Add paths for imports
-sys.path.append('../../../production/database')
-sys.path.append('../../../production/engine')
+sys.path.append('../../../production')
 
 try:
     from database.connection import get_engine

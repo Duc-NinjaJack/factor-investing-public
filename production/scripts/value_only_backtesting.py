@@ -22,6 +22,10 @@ import numpy as np
 import logging
 from pathlib import Path
 import sys
+import yaml
+import pickle
+from sqlalchemy import create_engine
+from typing import Dict
 
 # Add the scripts directory to path to import the parent class
 scripts_dir = Path(__file__).parent
@@ -44,10 +48,52 @@ class ValueOnlyBacktesting(RealDataBacktesting):
             config_path: Path to database configuration file
             pickle_path: Path to ADTV data pickle file
         """
-        super().__init__(config_path, pickle_path)
+        # Use the same config path pattern as the working phase20 script
+        if config_path is None:
+            config_path = "../../../config/database.yml"
+        
+        self.config_path = config_path
+        self.pickle_path = pickle_path or 'unrestricted_universe_data.pkl'
+        self.engine = self._create_database_engine()
+        
+        # Default thresholds
+        self.thresholds = {
+            '10B_VND': 10_000_000_000,
+            '3B_VND': 3_000_000_000
+        }
+        
+        # Default backtest configuration
+        self.backtest_config = {
+            'start_date': '2018-01-01',
+            'end_date': '2025-01-01',
+            'rebalance_freq': 'M',  # Monthly rebalancing
+            'portfolio_size': 25,
+            'max_sector_weight': 0.4,
+            'transaction_cost': 0.002,  # 20 bps
+            'initial_capital': 100_000_000  # 100M VND
+        }
+        
         logger.info("✅ Value-Only Backtesting Engine initialized")
         logger.info("   - Using Value_Composite factor for stock selection")
         logger.info("   - Pure value strategy (no quality or momentum components)")
+    
+    def _create_database_engine(self):
+        """Create database engine."""
+        try:
+            with open(self.config_path, 'r') as file:
+                config = yaml.safe_load(file)
+            
+            # Use production config (same as phase20)
+            db_config = config['production']
+            
+            connection_string = (
+                f"mysql+pymysql://{db_config['username']}:{db_config['password']}"
+                f"@{db_config['host']}/{db_config['schema_name']}"
+            )
+            return create_engine(connection_string, pool_recycle=3600)
+        except Exception as e:
+            logger.error(f"Database connection failed: {e}")
+            raise
     
     def load_data(self):
         """
@@ -57,55 +103,48 @@ class ValueOnlyBacktesting(RealDataBacktesting):
         
         data = {}
         
-        # Load price data (same as parent)
+        # Load price data (same as phase20)
         price_query = """
         SELECT trading_date, ticker, close_price_adjusted
         FROM vcsc_daily_data_complete
-        WHERE trading_date >= :start_date
+        WHERE trading_date >= '2016-01-01'
         ORDER BY trading_date, ticker
         """
-        data['price_data'] = pd.read_sql(
-            price_query, 
-            self.engine, 
-            params={'start_date': self.backtest_config['start_date']}
-        )
+        data['price_data'] = pd.read_sql(price_query, self.engine)
         data['price_data']['trading_date'] = pd.to_datetime(data['price_data']['trading_date'])
         
         # Load factor scores from database - VALUE ONLY
         factor_query = """
         SELECT date, ticker, Value_Composite
         FROM factor_scores_qvm
-        WHERE date >= :start_date
+        WHERE date >= '2016-01-01'
         ORDER BY date, ticker
         """
-        data['factor_scores'] = pd.read_sql(
-            factor_query, 
-            self.engine, 
-            params={'start_date': self.backtest_config['start_date']}
-        )
+        data['factor_scores'] = pd.read_sql(factor_query, self.engine)
         data['factor_scores']['date'] = pd.to_datetime(data['factor_scores']['date'])
         
-        # Load benchmark data (VNINDEX) - same as parent
+        # Load benchmark data (VNINDEX) - same as phase20
         benchmark_query = """
         SELECT date, close
         FROM etf_history
-        WHERE ticker = 'VNINDEX' AND date >= :start_date
+        WHERE ticker = 'VNINDEX' AND date >= '2016-01-01'
         ORDER BY date
         """
-        data['benchmark'] = pd.read_sql(
-            benchmark_query, 
-            self.engine, 
-            params={'start_date': self.backtest_config['start_date']}
-        )
+        data['benchmark'] = pd.read_sql(benchmark_query, self.engine)
         data['benchmark']['date'] = pd.to_datetime(data['benchmark']['date'])
         
-        # Load ADTV data (same as parent)
+        # Load ADTV data (same as phase20)
         try:
             with open(self.pickle_path, 'rb') as f:
-                data['adtv_data'] = pd.read_pickle(f)
+                pickle_data = pickle.load(f)
+            
+            data['adtv_data'] = pickle_data['adtv']
+            logger.info("✅ ADTV data loaded from pickle")
+            
         except FileNotFoundError:
-            logger.warning(f"ADTV data file {self.pickle_path} not found. Creating empty DataFrame.")
-            data['adtv_data'] = pd.DataFrame()
+            logger.error(f"❌ Pickle file not found: {self.pickle_path}")
+            logger.error("Please run get_unrestricted_universe_data.py first.")
+            raise
         
         logger.info(f"✅ All data loaded successfully for value-only backtesting")
         logger.info(f"   - Price data: {len(data['price_data']):,} records")
@@ -154,6 +193,32 @@ class ValueOnlyBacktesting(RealDataBacktesting):
             'benchmark_returns': benchmark_returns,
             'adtv_data': data['adtv_data']
         }
+    
+    def run_comparative_backtests(self, data: Dict[str, pd.DataFrame]) -> Dict[str, Dict]:
+        """Run comparative backtests for value-only strategy."""
+        logger.info("🔄 Running comparative backtests...")
+        
+        # Check if data is already prepared (has 'returns' key)
+        if 'returns' in data:
+            # Data is already prepared, use it directly
+            prepared_data = data
+        else:
+            # Data is raw, prepare it first
+            prepared_data = self.prepare_data_for_backtesting(data)
+        
+        # Run backtests for each threshold
+        backtest_results = {}
+        
+        for threshold_name, threshold_value in self.thresholds.items():
+            try:
+                result = self.run_backtest(threshold_name, threshold_value, prepared_data)
+                backtest_results[threshold_name] = result
+                logger.info(f"✅ {threshold_name} backtest completed")
+            except Exception as e:
+                logger.error(f"❌ {threshold_name} backtest failed: {e}")
+                continue
+        
+        return backtest_results
     
     def run_complete_analysis(self, save_plots: bool = True, save_report: bool = True):
         """
