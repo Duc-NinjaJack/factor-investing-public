@@ -245,12 +245,21 @@ def show_main_menu():
         next_quarter = quarterly_status['next_expected_quarter']
         print(f"{Colors.GREEN}✅ Next quarterly update: {next_quarter} in {days_until} days{Colors.ENDC}")
     
-    print(f"\n{Colors.BOLD}═══ 1. DAILY RAW DATA UPDATES (CRITICAL) ═══{Colors.ENDC}")
-    print("1.1 - Market Data Update (OHLCV, ETFs/Indices)")
-    print("1.2 - Daily Financial Information (Shares Outstanding)")
-    print("1.3 - VCSC Complete Data (Adjusted Prices & Microstructure)")
-    print("1.4 - Foreign Flow Data Update")
-    print("1.5 - 🔄 FULL DAILY UPDATE (Run All Above)")
+    print(f"\n{Colors.BOLD}═══ 0. MARKET INTELLIGENCE ═══{Colors.ENDC}")
+    print("0.1 - 📊 Daily Alpha Pulse (Terminal)")
+    print("0.2 - 📈 Advanced Market Intelligence Dashboard (Future)")
+    
+    # Side-by-side layout for main sections
+    print(f"\n{Colors.BOLD}CORE WORKFLOW                     │ EXECUTION & MONITORING{Colors.ENDC}")
+    print("──────────────────────────────────┼──────────────────────────────────")
+    
+    print(f"{Colors.BOLD}1. DAILY DATA UPDATES (CRITICAL)  │ 4. BACKTESTING & EXECUTION{Colors.ENDC}")
+    print("1.1 - Market Data (OHLCV, ETFs)  │ 4.1 - Run Canonical Backtest")
+    print("1.2 - Financial Info (Shares)     │ 4.2 - Generate Target Portfolio")
+    print("1.3 - VCSC Complete Data          │ 4.3 - Pre-Trade Compliance")
+    print("1.4 - Foreign Flow Data           │ 4.4 - Export Trade List")
+    print("1.5 - 🔄 FULL DAILY UPDATE        │ 4.5 - Post-Trade Reconciliation")
+    print("                                  │")
     
     # Dynamic quarterly section header based on urgency
     if quarterly_status['is_quarter_due_soon']:
@@ -258,52 +267,33 @@ def show_main_menu():
     else:
         urgency_indicator = f"(Next: {quarterly_status['next_expected_quarter']})"
     
-    print(f"\n{Colors.BOLD}═══ 2. QUARTERLY RAW DATA UPDATES {urgency_indicator} ═══{Colors.ENDC}")
-    print("2.1 - Banking Sector Fundamentals")
-    print("2.2 - Non-Financial Sectors Fundamentals")
-    print("2.3 - Dividend Data Extraction")
-    print("2.4 - 🔄 FULL QUARTERLY UPDATE (All Sectors + Dividends)")
-    print(f"2.5 - Verify {quarterly_status['next_expected_quarter']} Data Completeness")
+    print(f"{Colors.BOLD}2. QUARTERLY UPDATES {urgency_indicator[:15]:<15} │ 5. MONITORING & VALIDATION{Colors.ENDC}")
+    print("2.1 - Banking Fundamentals        │ 5.1 - Daily System Health")
+    print("2.2 - Non-Financial Fundamentals  │ 5.2 - Performance Attribution")
+    print("2.3 - Dividend Data Extraction    │ 5.3 - Portfolio Risk Analytics")
+    print("2.4 - 🔄 FULL QUARTERLY UPDATE    │ 5.4 - Factor Generation Status")
+    print("2.5 - 📊 Data Quality Report       │ 5.5 - Processing Pipeline Check")
+    print("                                  │")
     
-    print(f"\n{Colors.BOLD}═══ 3. DATA PROCESSING & VIEWS ═══{Colors.ENDC}")
-    print("3.1 - Create/Update Enhanced Fundamental View (PREREQUISITE)")
-    print("3.2 - Calculate Banking Intermediaries")
-    print("3.3 - Calculate Securities Intermediaries")
-    print("3.4 - Calculate Non-Financial Intermediaries")
-    print("3.5 - 🔄 FULL INTERMEDIARY CALCULATION (All Sectors)")
-    print("3.6 - Verify Intermediary Data Quality")
+    print(f"{Colors.BOLD}3. DATA PROCESSING & VIEWS        │ 6. UTILITIES & MAINTENANCE{Colors.ENDC}")
+    print("3.1 - Enhanced Fundamental View   │ 6.1 - Update Sector Mappings")
+    print("3.2 - Banking Intermediaries      │ 6.2 - OHLCV Full Reload")
+    print("3.3 - Securities Intermediaries   │ 6.3 - Database Backup")
+    print("3.4 - Non-Financial Intermediaries│ 6.4 - Clear Cache/Temp Files")
+    print("3.5 - 🔄 FULL INTERMEDIARY CALC   │")
+    print("3.6 - 📊 Pipeline Status Check    │")
     
-    print(f"\n{Colors.BOLD}═══ 4. FACTOR GENERATION (PRODUCTION) ═══{Colors.ENDC}")
-    print("4.1 - Generate QVM Factors (Date Range)")
-    print("4.2 - Generate QVM Factors (Single Date)")
-    print("4.3 - Incremental Factor Update (Latest Data)")
-    print("4.4 - Verify Factor Calculation Results")
+    print(f"\n{Colors.BOLD}FACTOR GENERATION (PRODUCTION ENGINE){Colors.ENDC}")
+    print("──────────────────────────────────────────────────────────────────────")
+    print("7.0 - 📚 Factor Generation Guide & Best Practices (CRITICAL)")
+    print("7.1 - Generate QVM Factors (Date Range)    │ 7.4 - 📊 Factor Status & Validation")
+    print("7.2 - Generate QVM Factors (Single Date)   │ 7.5 - Factor Generation Diagnostics")
+    print("7.3 - Incremental Update (Auto Gap Detect) │")
     
-    print(f"\n{Colors.BOLD}═══ 5. BACKTESTING & EXECUTION ═══{Colors.ENDC}")
-    print("5.1 - Run Canonical Strategy Backtest")
-    print("5.2 - Generate Target Portfolio")
-    print("5.3 - Pre-Trade Compliance Check")
-    print("5.4 - Export Trade List")
-    print("5.5 - Post-Trade Reconciliation")
-    
-    print(f"\n{Colors.BOLD}═══ 6. MONITORING & VALIDATION ═══{Colors.ENDC}")
-    print("6.1 - Daily System Health Check")
-    print("6.2 - Data Quality Report")
-    print("6.3 - Factor Score Validation")
-    print("6.4 - Performance Attribution")
-    
-    print(f"\n{Colors.BOLD}═══ 7. UTILITIES & MAINTENANCE ═══{Colors.ENDC}")
-    print("7.1 - Update Sector Mappings")
-    print("7.2 - OHLCV Full Reload (Corporate Actions)")
-    print("7.3 - Database Backup")
-    print("7.4 - Clear Cache/Temp Files")
-    
-    print(f"\n{Colors.BOLD}═══ 8. HELP & DOCUMENTATION ═══{Colors.ENDC}")
-    print("h  - Show Detailed Help")
-    print("d  - Display Workflow Diagram")
-    print("s  - System Information")
-    
-    print("\n0  - Exit")
+    print(f"\n{Colors.BOLD}HELP & DOCUMENTATION{Colors.ENDC}")
+    print("──────────────────────────────────────────────────────────────────────")
+    print("h  - Show Detailed Help           │ s  - System Information")
+    print("d  - Display Workflow Diagram     │ x  - Exit Platform")
 
 def handle_daily_updates(choice: str):
     """Handle daily raw data update options"""
@@ -367,13 +357,20 @@ def handle_quarterly_updates(choice: str):
             return run_workflow_command("quarterly")
     
     elif choice == '2.5':
-        quarterly_status = get_quarterly_reporting_status()
-        next_quarter = quarterly_status['next_expected_quarter']
-        print_header(f"{next_quarter.upper()} DATA VERIFICATION", "-")
-        print_info(f"Checking data completeness for {next_quarter}...")
-        # TODO: Implement dynamic quarterly verification script
-        print_warning(f"{next_quarter} verification script to be implemented")
-        return False
+        print_header("COMPREHENSIVE DATA QUALITY REPORT", "-")
+        print_info("Checking quarterly FS coverage + processing pipeline status...")
+        print_info("This combines quarterly data status and processing pipeline monitoring")
+        
+        # Run both the quarterly FS status and processing pipeline monitor
+        print("\n🔍 PART 1: QUARTERLY FINANCIAL STATEMENT COVERAGE")
+        print("-" * 60)
+        result1 = run_script("scripts/check_quarterly_fs_status.py")
+        
+        print("\n🔍 PART 2: PROCESSING PIPELINE STATUS")
+        print("-" * 60)
+        result2 = run_script("scripts/monitoring/check_processing_pipeline_status_dynamic.py")
+        
+        return result1 and result2
 
 def handle_data_processing(choice: str):
     """Handle data processing and view creation"""
@@ -419,14 +416,23 @@ def handle_data_processing(choice: str):
             return success
     
     elif choice == '3.6':
-        print_header("VERIFY INTERMEDIARY DATA QUALITY", "-")
-        # TODO: Implement data quality verification
-        print_warning("Data quality verification to be implemented")
-        return False
+        print_header("CHECK PROCESSING PIPELINE STATUS", "-")
+        print_info("Comprehensive status check for views and intermediary calculations...")
+        print_info("This will show:")
+        print("  • Raw data coverage by quarter")
+        print("  • Enhanced view status and current quarter coverage")
+        print("  • Intermediary calculation status by sector")
+        print("  • Processing gaps and recommendations")
+        if confirm_action("Run processing pipeline status check?"):
+            return run_script("scripts/monitoring/check_processing_pipeline_status_dynamic.py")
 
 def handle_factor_generation(choice: str):
     """Handle QVM factor generation using production engine"""
-    if choice == '4.1':
+    if choice == '7.0':
+        show_factor_generation_guide()
+        return True
+    
+    elif choice == '7.1':
         print_header("GENERATE QVM FACTORS (DATE RANGE)", "-")
         start_date = input("Enter start date (YYYY-MM-DD): ").strip()
         end_date = input("Enter end date (YYYY-MM-DD): ").strip()
@@ -441,7 +447,7 @@ def handle_factor_generation(choice: str):
         ]
         return run_script("production/scripts/run_factor_generation.py", args)
     
-    elif choice == '4.2':
+    elif choice == '7.2':
         print_header("GENERATE QVM FACTORS (SINGLE DATE)", "-")
         date = input("Enter date (YYYY-MM-DD): ").strip()
         mode = input("Enter mode (incremental/refresh) [incremental]: ").strip() or "incremental"
@@ -455,30 +461,56 @@ def handle_factor_generation(choice: str):
         ]
         return run_script("production/scripts/run_factor_generation.py", args)
     
-    elif choice == '4.3':
-        print_header("INCREMENTAL FACTOR UPDATE", "-")
-        print_info("Generating factors for latest available data...")
-        # Get yesterday's date
+    elif choice == '7.3':
+        print_header("INCREMENTAL FACTOR UPDATE (AUTO GAP DETECTION)", "-")
+        print_info("Detecting gaps in factor_scores_qvm table...")
+        
+        # Get version preference
+        version = input("Enter version tag [qvm_v2.0_enhanced]: ").strip() or "qvm_v2.0_enhanced"
+        
+        # Use intelligent gap detection by letting the script find missing dates
         from datetime import timedelta
-        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        # Set a reasonable range to search for gaps (e.g., last 30 days)
+        end_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')  # Yesterday
+        start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')  # 30 days ago
+        
+        print_info(f"Searching for missing dates between {start_date} and {end_date}")
+        print_info(f"Version: {version}")
+        print_info("Note: Only missing dates will be processed (incremental mode)")
         
         args = [
-            "--start-date", yesterday,
-            "--end-date", yesterday,
+            "--start-date", start_date,
+            "--end-date", end_date,
             "--mode", "incremental",
-            "--version", "v2_enhanced"
+            "--version", version
         ]
         return run_script("production/scripts/run_factor_generation.py", args)
     
-    elif choice == '4.4':
-        print_header("VERIFY FACTOR CALCULATION RESULTS", "-")
-        # TODO: Implement factor verification
-        print_warning("Factor verification to be implemented")
+    elif choice == '7.4':
+        print_header("COMPREHENSIVE FACTOR STATUS & VALIDATION", "-")
+        print_info("Comprehensive factor generation monitoring and validation...")
+        print_info("This combines factor status monitoring with validation checks")
+        
+        # Run the comprehensive factor status monitor
+        print("\n🔍 FACTOR GENERATION STATUS & VALIDATION")
+        print("-" * 60)
+        return run_script("scripts/monitoring/check_factor_generation_status.py")
+    
+    elif choice == '7.5':
+        print_header("FACTOR GENERATION DIAGNOSTICS", "-")
+        print_info("Advanced diagnostics for factor generation issues...")
+        # TODO: Implement advanced factor diagnostics
+        print_warning("Factor generation diagnostics to be implemented")
+        print_info("This will include:")
+        print("  • Engine performance profiling")
+        print("  • Calculation accuracy testing")
+        print("  • Cross-validation with alternative methods")
+        print("  • Historical consistency checks")
         return False
 
 def handle_backtesting_execution(choice: str):
     """Handle backtesting and portfolio execution"""
-    if choice == '5.1':
+    if choice == '4.1':
         print_header("RUN CANONICAL STRATEGY BACKTEST", "-")
         print_info("This will run the official QVM strategy backtest")
         print_warning("Ensure factor_scores_qvm table is up to date")
@@ -486,32 +518,197 @@ def handle_backtesting_execution(choice: str):
             os.system("cd notebooks/phase6_backtesting && jupyter notebook 06_canonical_qvm_backtest_final.ipynb")
         return True
     
-    elif choice == '5.2':
+    elif choice == '4.2':
         print_header("GENERATE TARGET PORTFOLIO", "-")
         dry_run = confirm_action("Run in dry-run mode?")
         args = ["--dry-run"] if dry_run else []
         return run_script("production/scripts/generate_target_portfolio.py", args)
     
-    elif choice == '5.3':
+    elif choice == '4.3':
         print_header("PRE-TRADE COMPLIANCE CHECK", "-")
         print_info("Checking portfolio against risk limits...")
         # TODO: Implement compliance check
         print_warning("Compliance check to be implemented")
         return False
     
-    elif choice == '5.4':
+    elif choice == '4.4':
         print_header("EXPORT TRADE LIST", "-")
         print_info("Exporting trade list for execution...")
         # TODO: Implement trade list export
         print_warning("Trade list export to be implemented")
         return False
     
-    elif choice == '5.5':
+    elif choice == '4.5':
         print_header("POST-TRADE RECONCILIATION", "-")
         print_info("Reconciling executed trades...")
         # TODO: Implement reconciliation
         print_warning("Post-trade reconciliation to be implemented")
         return False
+
+def show_factor_generation_guide():
+    """Display comprehensive factor generation guide and best practices"""
+    clear_screen()
+    print_header("📚 FACTOR GENERATION GUIDE & BEST PRACTICES", "=")
+    
+    # Get current temporal logic status (DYNAMIC - calculates based on reporting rules)
+    current_date = datetime.now()
+    current_year = current_date.year
+    
+    # Calculate Q2 availability date dynamically (Q2 ends June 30 + 45 days reporting lag)
+    q2_end_date = datetime(current_year, 6, 30)
+    q2_available_date = q2_end_date + timedelta(days=45)  # Dynamic Q2 regulatory deadline
+    days_until_q2 = (q2_available_date - current_date).days
+    
+    print(f"📅 Current Date: {current_date.strftime('%Y-%m-%d %H:%M ICT')}")
+    if days_until_q2 > 0:
+        print(f"⏰ Q2 {current_year} Regulatory Deadline: {q2_available_date.strftime('%B %d, %Y')} ({days_until_q2} days)")
+        print_warning(f"TEMPORAL LOGIC: Currently locked to Q1 {current_year} data (45-day lag rule)")
+        print_info(f"Q2 {current_year} data available in intermediaries but not used until {q2_available_date.strftime('%b %d')}")
+    else:
+        print_success(f"Q2 {current_year} data is now available for factor generation")
+    
+    print(f"\n{Colors.BOLD}🎯 CRITICAL PREREQUISITES (CHECK FIRST!):{Colors.ENDC}")
+    print("1. ✅ Run Option 3.6 - Check Processing Pipeline Status")
+    print("   • Verify 99%+ processing efficiency")
+    print("   • Confirm enhanced views are updated")
+    print("   • Check intermediary calculations are complete")
+    print()
+    print("2. ✅ Ensure Data Prerequisites:")
+    print("   • Enhanced fundamental views created (Option 3.1)")
+    print("   • All intermediary calculations complete (Option 3.5)")
+    print("   • VCSC daily data is current")
+    print("   • Equity history adjusted prices are current")
+    print()
+    
+    print(f"\n{Colors.BOLD}⚙️ FACTOR GENERATION OPTIONS EXPLAINED:{Colors.ENDC}")
+    print(f"{Colors.BLUE}Option 4.1 - Generate QVM Factors (Date Range):{Colors.ENDC}")
+    print("   • Use for: Historical factor generation, backtesting")
+    print("   • Example: 2024-01-01 to 2024-12-31")
+    print("   • Parameters:")
+    print("     - start-date: YYYY-MM-DD format")
+    print("     - end-date: YYYY-MM-DD format")
+    print("     - mode: incremental (default) or refresh")
+    print("     - version: qvm_v2.0_enhanced (recommended)")
+    print("   • Runtime: ~1-2 minutes per month of data")
+    print()
+    
+    print(f"{Colors.BLUE}Option 4.2 - Generate QVM Factors (Single Date):{Colors.ENDC}")
+    print("   • Use for: Daily factor updates, specific date testing")
+    print("   • Example: 2025-07-30 (latest available)")
+    print("   • Faster than date range for single dates")
+    print("   • Ideal for production daily updates")
+    print()
+    
+    print(f"{Colors.BLUE}Option 4.3 - Incremental Factor Update (Auto Gap Detection):{Colors.ENDC}")
+    print("   • Use for: Automatic gap detection and filling")
+    print("   • Scans factor_scores_qvm for missing dates (last 30 days)")
+    print("   • Generates factors for missing dates only")
+    print("   • Perfect for daily production workflow")
+    print("   • Version-aware: Only processes specified strategy version")
+    print()
+    
+    print(f"{Colors.BLUE}Option 4.4 - Factor Generation Status Monitor:{Colors.ENDC}")
+    print("   • Use for: Checking factor generation coverage")
+    print("   • Shows latest factors by version and date")
+    print("   • Identifies processing gaps and issues")
+    print("   • Provides recommendations for next steps")
+    print()
+    
+    print(f"\n{Colors.BOLD}🛡️ CRITICAL SAFETY GUIDELINES:{Colors.ENDC}")
+    print_warning("ALWAYS backup factor_scores_qvm table before large regenerations!")
+    print()
+    print("1. 🔍 Pre-Generation Checklist:")
+    print("   • Run Option 3.6 to verify data pipeline status")
+    print("   • Check database disk space (factor table can be large)")
+    print("   • Ensure no other processes are using the database")
+    print("   • Verify version tag matches your requirements")
+    print()
+    
+    print("2. 📊 Version Tag Guidelines:")
+    print("   • 'qvm_v2.0_enhanced' - Latest production engine (RECOMMENDED)")
+    print("   • 'v2_enhanced' - Legacy tag (compatibility only)")
+    print("   • NEVER mix version tags in same backtest")
+    print("   • Use consistent tags across all dates")
+    print()
+    
+    print("3. ⚡ Performance Optimization:")
+    print("   • Use 'incremental' mode for daily updates")
+    print("   • Use 'refresh' mode only when recalculation needed")
+    print("   • Process in smaller date ranges for large historical periods")
+    print("   • Monitor database performance during generation")
+    print()
+    
+    print(f"\n{Colors.BOLD}🎯 RECOMMENDED WORKFLOWS:{Colors.ENDC}")
+    print(f"{Colors.GREEN}Daily Production Workflow:{Colors.ENDC}")
+    print("1. Run Option 3.6 (Check pipeline status)")
+    print("2. If 99%+ efficiency → Run Option 4.3 (Incremental update)")
+    print("3. Run Option 4.4 (Verify results)")
+    print("4. Proceed to backtesting/execution")
+    print()
+    
+    print(f"{Colors.GREEN}Historical Backtest Workflow:{Colors.ENDC}")
+    print("1. Backup factor_scores_qvm table")
+    print("2. Run Option 4.1 with desired date range")
+    print("3. Use consistent version tag (qvm_v2.0_enhanced)")
+    print("4. Verify factor scores before backtesting")
+    print()
+    
+    print(f"{Colors.GREEN}Q2 2025 Transition Workflow (Current Priority):{Colors.ENDC}")
+    if days_until_q2 > 0:
+        print_warning("CURRENT SITUATION: Mixed-quarter data available but not used")
+        print("• Q2 2025 data: 99.4% processed in intermediaries")
+        print("• Temporal logic: Locked to Q1 2025 until Aug 14")
+        print("• Options:")
+        print("  A) Wait until Aug 14 for automatic Q2 usage")
+        print("  B) Implement progressive temporal logic (advanced)")
+        print("  C) Generate factors now for Q1 consistency")
+    else:
+        print_success("Q2 2025 data is now automatically used in factor generation")
+        print("• Run Option 4.3 to generate latest factors with Q2 data")
+        print("• Expect improved factor scores due to current earnings")
+    
+    print(f"\n{Colors.BOLD}🚨 COMMON PITFALLS TO AVOID:{Colors.ENDC}")
+    print_error("1. Running factor generation without updated intermediaries")
+    print_error("2. Mixing different version tags in same analysis")
+    print_error("3. Not backing up before large historical regenerations")
+    print_error("4. Ignoring processing pipeline status (Option 3.6)")
+    print_error("5. Using refresh mode when incremental would suffice")
+    print()
+    
+    print(f"\n{Colors.BOLD}📈 FACTOR GENERATION MONITORING:{Colors.ENDC}")
+    print("• Monitor factor_scores_qvm table size during generation")
+    print("• Check for consistent ticker coverage across dates")
+    print("• Verify factor scores are reasonable (not all zeros/nulls)")
+    print("• Use Option 4.4 to validate calculation results")
+    print("• Track generation performance for optimization")
+    print()
+    
+    print(f"\n{Colors.BOLD}🔧 TROUBLESHOOTING QUICK REFERENCE:{Colors.ENDC}")
+    print("Issue: 'No data available for date X'")
+    print("→ Run Option 3.6 to check pipeline status")
+    print("→ Verify intermediaries are calculated for that date")
+    print()
+    print("Issue: Factor generation taking too long")
+    print("→ Use smaller date ranges")
+    print("→ Check database performance")
+    print("→ Consider incremental mode")
+    print()
+    print("Issue: Inconsistent factor scores")
+    print("→ Verify version tag consistency")
+    print("→ Check for data quality issues")
+    print("→ Run Option 4.4 for validation")
+    print()
+    
+    print(f"\n{Colors.BOLD}📞 SUPPORT & DOCUMENTATION:{Colors.ENDC}")
+    print("• QVM Engine Specification: docs/2_technical_implementation/02a_qvm_engine_v2_enhanced_specification.md")
+    print("• Temporal Logic Rules: docs/2_technical_implementation/02b_temporal_logic_and_data_availability.md")
+    print("• Production Workflow: docs/2_technical_implementation/02g_quant_workflow_v1.1_production_ready.md")
+    print("• Current Status: CLAUDE.md (Phase 16 - Weighted Composite Models)")
+    
+    print(f"\n{Colors.CYAN}{'='*80}{Colors.ENDC}")
+    print(f"💡 NEXT STEPS: Run Option 3.6 first, then choose appropriate factor generation option")
+    print(f"🚀 PRODUCTION TIP: Option 4.3 (Incremental Update) is safest for daily workflow")
+    input(f"\n{Colors.CYAN}Press Enter to return to main menu...{Colors.ENDC}")
 
 def show_help():
     """Display detailed help information"""
@@ -630,8 +827,19 @@ def main():
         
         choice = input(f"\n{Colors.BOLD}Select option: {Colors.ENDC}").strip().lower()
         
+        # Market Intelligence (NEW OPTION 0)
+        if choice == '0.1':
+            print_header("DAILY ALPHA PULSE (TERMINAL)", "-")
+            print_info("Launching terminal-based daily market intelligence...")
+            run_script("production/market_intelligence/terminal_daily_pulse.py")
+        
+        elif choice == '0.2':
+            print_header("ADVANCED MARKET INTELLIGENCE DASHBOARD", "-")
+            print_info("Future: Advanced market intelligence dashboard")
+            print_warning("Advanced dashboard to be implemented")
+        
         # Daily updates
-        if choice.startswith('1.'):
+        elif choice.startswith('1.'):
             handle_daily_updates(choice)
         
         # Quarterly updates
@@ -642,50 +850,57 @@ def main():
         elif choice.startswith('3.'):
             handle_data_processing(choice)
         
-        # Factor generation
+        # Backtesting & execution (moved to section 4)
         elif choice.startswith('4.'):
-            handle_factor_generation(choice)
-        
-        # Backtesting & execution
-        elif choice.startswith('5.'):
             handle_backtesting_execution(choice)
         
-        # Monitoring & validation
-        elif choice == '6.1':
+        # Monitoring & validation (moved to section 5)
+        elif choice == '5.1':
             print_header("DAILY SYSTEM HEALTH CHECK", "-")
             run_script("production/scripts/daily_system_check.py")
         
-        elif choice == '6.2':
-            print_header("DATA QUALITY REPORT", "-")
-            print_warning("Data quality report to be implemented")
-        
-        elif choice == '6.3':
-            print_header("FACTOR SCORE VALIDATION", "-")
-            run_script("production/scripts/weekly_signal_outlier_check.py")
-        
-        elif choice == '6.4':
+        elif choice == '5.2':
             print_header("PERFORMANCE ATTRIBUTION", "-")
             print_warning("Performance attribution to be implemented")
         
-        # Utilities
-        elif choice == '7.1':
+        elif choice == '5.3':
+            print_header("PORTFOLIO RISK ANALYTICS", "-")
+            print_warning("Portfolio risk analytics to be implemented")
+        
+        elif choice == '5.4':
+            print_header("COMPREHENSIVE FACTOR STATUS & VALIDATION", "-")
+            print_info("Comprehensive factor generation monitoring and validation...")
+            run_script("scripts/monitoring/check_factor_generation_status.py")
+            
+        elif choice == '5.5':
+            print_header("CHECK PROCESSING PIPELINE STATUS", "-")
+            print_info("Comprehensive status check for views and intermediary calculations...")
+            if confirm_action("Run processing pipeline status check?"):
+                run_script("scripts/monitoring/check_processing_pipeline_status_dynamic.py")
+        
+        # Utilities (moved to section 6)
+        elif choice == '6.1':
             print_header("UPDATE SECTOR MAPPINGS", "-")
             run_workflow_command("update-sectors")
         
-        elif choice == '7.2':
+        elif choice == '6.2':
             print_header("OHLCV FULL RELOAD", "-")
             print_warning("This will reload ALL historical data")
             start_date = input("Enter start date (YYYY-MM-DD): ").strip()
             if confirm_action(f"Reload OHLCV from {start_date}?"):
                 run_workflow_command("full-ohlcv-reload", [start_date])
         
-        elif choice == '7.3':
+        elif choice == '6.3':
             print_header("DATABASE BACKUP", "-")
             print_warning("Database backup to be implemented")
         
-        elif choice == '7.4':
+        elif choice == '6.4':
             print_header("CLEAR CACHE/TEMP FILES", "-")
             print_warning("Cache clearing to be implemented")
+        
+        # Factor generation (moved to section 7)
+        elif choice.startswith('7.'):
+            handle_factor_generation(choice)
         
         # Help & documentation
         elif choice == 'h':
@@ -698,14 +913,14 @@ def main():
             show_system_info()
         
         # Exit
-        elif choice == '0':
+        elif choice == 'x':
             print_success("\nExiting Production Menu. Goodbye!")
             break
         
         else:
             print_error("Invalid option. Please try again.")
         
-        if choice != '0':
+        if choice != 'x':
             input(f"\n{Colors.CYAN}Press Enter to continue...{Colors.ENDC}")
 
 if __name__ == '__main__':
