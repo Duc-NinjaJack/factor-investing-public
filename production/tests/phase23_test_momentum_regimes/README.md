@@ -24,18 +24,24 @@ phase23_test_momentum_regimes/
 ├── 03_momentum_weight_optimization.py        # Weight optimization
 ├── 04_momentum_transaction_cost_analysis.py  # Transaction cost analysis
 ├── 05_comprehensive_momentum_regime_analysis.py # Comprehensive analysis
+├── 06_large_universe_validation.py           # Large universe (200 stocks) validation
+├── 07_market_cap_quartile_analysis.py        # Market cap quartile analysis (full)
+├── 08_quick_market_cap_analysis.py           # Quick market cap quartile analysis
 ├── regime_shift_analysis.py                  # Regime shift statistical analysis
 ├── README.md                                 # This file
 ├── docs/                                     # Documentation
 │   ├── regime_shift_analysis_report.md       # Detailed regime analysis report
 │   ├── momentum_factor_validation_guide.md   # Validation methodology guide
 │   ├── technical_implementation_notes.md     # Technical implementation details
-│   └── regime_momentum_methodology.md        # Methodology documentation
+│   ├── regime_momentum_methodology.md        # Methodology documentation
+│   ├── large_universe_validation_report.md   # Large universe validation report
+│   └── market_cap_quartile_analysis_report.md # Market cap quartile analysis report
 ├── data/                                     # Data storage
 │   └── .gitkeep
 └── img/                                      # Generated visualizations
     ├── .gitkeep
-    └── regime_shift_analysis.png             # Regime shift visualization
+    ├── regime_shift_analysis.png             # Regime shift visualization
+    └── market_cap_quartile_analysis_*.png    # Market cap quartile visualizations
 ```
 
 ## 🚀 Quick Start
@@ -45,12 +51,22 @@ phase23_test_momentum_regimes/
 python 01_momentum_regime_validation_tests.py
 ```
 
-### 2. Run Regime Shift Analysis
+### 2. Run Large Universe Validation (200 stocks)
+```bash
+python 06_large_universe_validation.py
+```
+
+### 3. Run Market Cap Quartile Analysis
+```bash
+python 08_quick_market_cap_analysis.py
+```
+
+### 4. Run Regime Shift Analysis
 ```bash
 python regime_shift_analysis.py
 ```
 
-### 3. Run Comprehensive Analysis
+### 5. Run Comprehensive Analysis
 ```bash
 python 05_comprehensive_momentum_regime_analysis.py
 ```
@@ -62,6 +78,8 @@ python 05_comprehensive_momentum_regime_analysis.py
 | Script | Purpose | Key Features |
 |--------|---------|--------------|
 | `01_momentum_regime_validation_tests.py` | Main validation framework | IC calculation, regime testing, quality gates |
+| `06_large_universe_validation.py` | Large universe validation | 200 stocks, data quality checks, simulation detection |
+| `08_quick_market_cap_analysis.py` | Market cap quartile analysis | Size effect analysis, quartile performance |
 | `regime_shift_analysis.py` | Statistical regime analysis | Confidence intervals, economic significance |
 | `02_momentum_parameter_optimization.py` | Parameter optimization | Lookback period optimization |
 | `03_momentum_weight_optimization.py` | Weight optimization | Timeframe weight optimization |
@@ -148,6 +166,18 @@ scipy>=1.9.0  # For enhanced statistical functions
    - Statistical framework
    - Regime detection algorithms
 
+5. **[Large Universe Validation Report](docs/large_universe_validation_report.md)**
+   - 200 stocks universe analysis
+   - Data quality assessment
+   - Simulation detection results
+   - Real market data confirmation
+
+6. **[Market Cap Quartile Analysis Report](docs/market_cap_quartile_analysis_report.md)**
+   - Size effect analysis
+   - Quartile performance comparison
+   - Investment implications
+   - Portfolio construction recommendations
+
 ## 🎯 Key Findings
 
 ### 1. Regime Shift Confirmed
@@ -155,15 +185,20 @@ scipy>=1.9.0  # For enhanced statistical functions
 - **Economic Significance**: High economic impact (102-158% annualized)
 - **Horizon Dependence**: Longer horizons show stronger momentum effects
 
-### 2. Investment Implications
-- **Factor Weight Adjustment**: Consider increasing momentum weight
-- **Parameter Optimization**: Optimize for new regime characteristics
-- **Risk Management**: Implement regime-aware strategies
+### 2. Size Effect Discovered
+- **Small Cap Advantage**: Q1 and Q2 consistently outperform Q3 and Q4
+- **Performance Spread**: 17.86% difference between best and worst quartiles
+- **Quality Gates**: Q1 and Q2 pass 2/3 quality gates in 2016-2020
 
-### 3. Technical Validation
-- **Skip Month**: Properly implemented (1-month skip convention)
-- **Normalization**: Sector-neutral z-score normalization working correctly
-- **Data Quality**: High-quality price and fundamental data
+### 3. Data Quality Validated
+- **Real Market Data**: No evidence of simulation or synthetic data
+- **Large Universe**: 200 stocks analysis confirms data quality
+- **Market Cap Diversity**: Wide range (381B - 327T VND) tested
+
+### 4. Investment Implications
+- **Size-Based Strategy**: Focus on small-cap momentum (Q1, Q2)
+- **Regime Awareness**: Reduce momentum exposure in current regime
+- **Portfolio Construction**: 60-70% allocation to small-cap momentum
 
 ## 🚨 Quality Gates
 

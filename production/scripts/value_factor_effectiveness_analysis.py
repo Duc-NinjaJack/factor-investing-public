@@ -231,12 +231,12 @@ class ValueFactorEffectivenessAnalyzer:
             DataFrame with date, ticker, and returns
         """
         try:
-            # Get price data
+            # Get price data using the existing utility function
             price_data = get_price_data(tickers, start_date, end_date, engine=self.engine)
             
             # Calculate returns
             price_data = price_data.sort_values(['ticker', 'date'])
-            price_data['returns'] = price_data.groupby('ticker')['close'].pct_change()
+            price_data['returns'] = price_data.groupby('ticker')['close_price'].pct_change()
             
             # Remove first row for each ticker (NaN returns)
             price_data = price_data.dropna(subset=['returns'])
