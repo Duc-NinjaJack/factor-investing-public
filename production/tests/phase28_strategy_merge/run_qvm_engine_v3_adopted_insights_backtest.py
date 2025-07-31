@@ -41,14 +41,14 @@ Dependencies:
 import pandas as pd
 import numpy as np
 import backtrader as bt
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 import yaml
 from pathlib import Path
-from datetime import datetime, timedelta
-from sqlalchemy import create_engine, text
 import warnings
-import logging
 
-# Import the strategy
+# Project-specific imports
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

@@ -34,6 +34,13 @@ factor-investing-public/
 - **Test files:** `##_test_description.ipynb` or `##_test_description.md`
 - **Backup files:** `original_name_backup_description.ext`
 
+### **Notebook Generation Workflow**
+- **Step 1:** Create the markdown (`.md`) file first with all code blocks and documentation
+- **Step 2:** Convert the markdown file to Jupyter notebook (`.ipynb`) using `jupytext`
+- **Step 3:** Verify the notebook structure and cell execution
+- **Rationale:** Markdown files are easier to edit, version control, and maintain than notebook files
+- **Command:** `jupytext --to notebook filename.md`
+
 ---
 
 ## 🐍 Python Code Standards

@@ -432,26 +432,40 @@ class QVMEngineV3AdoptedInsights:
             # Get fundamental data with proper lagging (3-month lag to prevent look-ahead bias)
             fundamental_query = """
             SELECT 
-                ticker,
-                sector,
-                roaa,
-                operating_margin,
-                ebitda_margin,
-                asset_turnover
+                ic.ticker,
+                mi.sector,
+                CASE 
+                    WHEN ic.AvgTotalAssets > 0 THEN ic.NetProfit_TTM / ic.AvgTotalAssets 
+                    ELSE NULL 
+                END as roaa,
+                CASE 
+                    WHEN ic.Revenue_TTM > 0 THEN (ic.Revenue_TTM - ic.COGS_TTM - ic.OperatingExpenses_TTM) / ic.Revenue_TTM 
+                    ELSE NULL 
+                END as operating_margin,
+                CASE 
+                    WHEN ic.Revenue_TTM > 0 THEN ic.EBITDA_TTM / ic.Revenue_TTM 
+                    ELSE NULL 
+                END as ebitda_margin,
+                CASE 
+                    WHEN ic.AvgTotalAssets > 0 THEN ic.Revenue_TTM / ic.AvgTotalAssets 
+                    ELSE NULL 
+                END as asset_turnover
             FROM (
                 SELECT 
                     ticker,
-                    sector,
-                    roaa,
-                    operating_margin,
-                    ebitda_margin,
-                    asset_turnover,
-                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                    NetProfit_TTM,
+                    Revenue_TTM,
+                    COGS_TTM,
+                    OperatingExpenses_TTM,
+                    EBITDA_TTM,
+                    AvgTotalAssets,
+                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY calc_date DESC) as rn
                 FROM intermediary_calculations_enhanced
-                WHERE date <= DATE_SUB(%s, INTERVAL 3 MONTH)  # 3-month lag
+                WHERE calc_date <= DATE_SUB(%s, INTERVAL 3 MONTH)  # 3-month lag
                   AND ticker IN ({})
-            ) ranked
-            WHERE rn = 1
+            ) ic
+            LEFT JOIN master_info mi ON ic.ticker = mi.ticker
+            WHERE ic.rn = 1
             """.format(','.join(['%s'] * len(universe)))
             
             fundamental_df = pd.read_sql(
@@ -460,10 +474,17 @@ class QVMEngineV3AdoptedInsights:
                 params=tuple([analysis_date] + universe)
             )
             
+            self.logger.info(f"Fundamental data retrieved: {len(fundamental_df)} records")
+            
+            if fundamental_df.empty:
+                self.logger.warning("No fundamental data available")
+                return pd.DataFrame()
+            
             # Get market data for momentum calculation
             market_query = """
             SELECT 
                 ticker,
+                trading_date,
                 close_price_adjusted as close,
                 total_volume as volume,
                 market_cap
@@ -479,15 +500,25 @@ class QVMEngineV3AdoptedInsights:
                 params=tuple([analysis_date] + universe)
             )
             
+            self.logger.info(f"Market data retrieved: {len(market_df)} records")
+            
+            if market_df.empty:
+                self.logger.warning("No market data available")
+                return pd.DataFrame()
+            
             # Calculate momentum factors with skip month
             momentum_data = self._calculate_momentum_factors(market_df, analysis_date)
+            self.logger.info(f"Momentum factors calculated: {len(momentum_data)} records")
             
             # Calculate P/E factors (simplified - no P/B)
             pe_data = self._calculate_pe_factors(market_df, fundamental_df)
+            self.logger.info(f"P/E factors calculated: {len(pe_data)} records")
             
             # Merge all data
             factors_df = fundamental_df.merge(momentum_data, on='ticker', how='inner')
             factors_df = factors_df.merge(pe_data, on='ticker', how='inner')
+            
+            self.logger.info(f"Final factors data: {len(factors_df)} records")
             
             # Apply sector-specific calculations
             factors_df = self.sector_calculator.calculate_sector_aware_pe(factors_df)
@@ -517,7 +548,7 @@ class QVMEngineV3AdoptedInsights:
         skip_months = 1  # Skip the most recent month
         
         for ticker in market_df['ticker'].unique():
-            ticker_data = market_df[market_df['ticker'] == ticker].sort_values('date')
+            ticker_data = market_df[market_df['ticker'] == ticker].sort_values('trading_date')
             
             if len(ticker_data) < 252 + skip_months:  # Need at least 1 year + skip months
                 continue
