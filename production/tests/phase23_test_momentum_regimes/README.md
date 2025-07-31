@@ -172,7 +172,7 @@ scipy>=1.9.0  # For enhanced statistical functions
    - Simulation detection results
    - Real market data confirmation
 
-6. **[Market Cap Quartile Analysis Report](docs/market_cap_quartile_analysis_report.md)**
+6. **[Market Cap Quartile Analysis Report](../phase28_strategy_merge/insights/momentum_by_market_cap.md)**
    - Size effect analysis
    - Quartile performance comparison
    - Investment implications
