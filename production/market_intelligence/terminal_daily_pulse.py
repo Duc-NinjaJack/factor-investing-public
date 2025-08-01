@@ -356,12 +356,13 @@ def generate_terminal_daily_pulse():
         
         top_turnover_stocks = cursor.fetchall()
         
-        # Get foreign flow data
+        # Get foreign flow data from vcsc_daily_data_complete
         cursor.execute("""
             SELECT 
-                SUM(foreign_net_value_total) as net_value
-            FROM vcsc_foreign_flow_summary
+                SUM(foreign_net_value) as net_value
+            FROM vcsc_daily_data_complete
             WHERE trading_date = %s
+                AND foreign_net_value IS NOT NULL
         """, (latest_equity_date,))
         
         foreign_result = cursor.fetchone()
