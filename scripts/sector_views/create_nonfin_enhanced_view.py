@@ -176,7 +176,6 @@ def create_enhanced_fundamental_view(engine):
         print("🔄 Creating enhanced fundamental view...")
         with engine.connect() as conn:
             conn.execute(text(create_view_query))
-            conn.commit()
         print("✅ Successfully created v_comprehensive_fundamental_items")
         print()
         
