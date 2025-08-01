@@ -357,16 +357,36 @@ def generate_terminal_daily_pulse():
         top_turnover_stocks = cursor.fetchall()
         
         # Get foreign flow data from vcsc_daily_data_complete
+        # First try the current date, then fall back to most recent available date
         cursor.execute("""
             SELECT 
-                SUM(foreign_net_value_total) as net_value
+                SUM(foreign_net_value_total) as net_value,
+                %s as trading_date
             FROM vcsc_daily_data_complete
             WHERE trading_date = %s
                 AND foreign_net_value_total IS NOT NULL
-        """, (latest_equity_date,))
+        """, (latest_equity_date, latest_equity_date))
         
         foreign_result = cursor.fetchone()
+        
+        if not foreign_result or foreign_result[0] is None:
+            # Fall back to most recent available date
+            cursor.execute("""
+                SELECT 
+                    SUM(foreign_net_value_total) as net_value,
+                    MAX(trading_date) as trading_date
+                FROM vcsc_daily_data_complete
+                WHERE trading_date = (
+                    SELECT MAX(trading_date) 
+                    FROM vcsc_daily_data_complete 
+                    WHERE foreign_net_value_total IS NOT NULL
+                )
+                AND foreign_net_value_total IS NOT NULL
+            """)
+            foreign_result = cursor.fetchone()
+        
         foreign_net = float(foreign_result[0]) / 1e9 if foreign_result and foreign_result[0] else None  # Billions
+        foreign_date = foreign_result[1] if foreign_result else None
         
         # Get factor performance - use most recent available factor data
         factors = {}
@@ -481,7 +501,12 @@ def generate_terminal_daily_pulse():
         active_display = f"{active_stocks:>4} stocks" if active_stocks is not None else "N/A"
         
         # Foreign flow display
-        ff_display = format_change(foreign_net, 'B') if foreign_net is not None else "N/A"
+        if foreign_net is not None:
+            ff_display = format_change(foreign_net, 'B')
+            if foreign_date and foreign_date != latest_equity_date:
+                ff_display = format_change(foreign_net, 'B*')  # Add asterisk for different date
+        else:
+            ff_display = "N/A"
         
         print(f"│ • VN-Index: {vn_index_display:>15} │ • Vol: {vol_display:>8} │")
         print(f"│ • Breadth: {breadth_display:>16} │ • T/O: {to_display:>8} │")
@@ -569,7 +594,12 @@ def generate_terminal_daily_pulse():
             print("• Market Participation: N/A")
         
         # Foreign flow and A/D ratio
-        ff_str = format_change(foreign_net, 'B VND') if foreign_net is not None else "N/A"
+        if foreign_net is not None:
+            ff_str = format_change(foreign_net, 'B VND')
+            if foreign_date and foreign_date != latest_equity_date:
+                ff_str += f" ({foreign_date.strftime('%m-%d')})"
+        else:
+            ff_str = "N/A"
         ad_str = f", A/D Ratio: {advance_decline_ratio:.2f}" if advance_decline_ratio is not None else ""
         print(f"• Foreign Flow: {ff_str} (net){ad_str}")
         
