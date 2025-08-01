@@ -359,10 +359,10 @@ def generate_terminal_daily_pulse():
         # Get foreign flow data from vcsc_daily_data_complete
         cursor.execute("""
             SELECT 
-                SUM(foreign_net_value) as net_value
+                SUM(foreign_net_value_total) as net_value
             FROM vcsc_daily_data_complete
             WHERE trading_date = %s
-                AND foreign_net_value IS NOT NULL
+                AND foreign_net_value_total IS NOT NULL
         """, (latest_equity_date,))
         
         foreign_result = cursor.fetchone()
