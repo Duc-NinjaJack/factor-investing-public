@@ -412,9 +412,20 @@ def demonstrate_fixed_regime_detection():
         benchmark_returns = benchmark_data['close'].pct_change()
         
         # Create dummy data for demonstration
-        price_data = pd.DataFrame({'close': np.random.randn(1000).cumsum() + 100})
-        fundamental_data = pd.DataFrame({'ticker': ['STOCK1', 'STOCK2'], 'value': [1, 2]})
-        returns_matrix = pd.DataFrame(np.random.randn(1000, 10), columns=[f'STOCK{i}' for i in range(1, 11)])
+        dates = pd.date_range('2020-01-01', '2025-07-31', freq='D')
+        price_data = pd.DataFrame({
+            'date': dates,
+            'close': np.random.randn(len(dates)).cumsum() + 100
+        })
+        fundamental_dates = pd.date_range('2020-01-01', '2025-07-31', freq='Q')
+        fundamental_data = []
+        for date in fundamental_dates:
+            fundamental_data.append({'date': date, 'ticker': 'STOCK1', 'value': np.random.randn()})
+            fundamental_data.append({'date': date, 'ticker': 'STOCK2', 'value': np.random.randn()})
+        fundamental_data = pd.DataFrame(fundamental_data)
+        returns_matrix = pd.DataFrame(np.random.randn(len(dates), 10), 
+                                    index=dates, 
+                                    columns=[f'STOCK{i}' for i in range(1, 11)])
         
         # Initialize fixed engine
         fixed_engine = QVMEngineV3Fixed(
