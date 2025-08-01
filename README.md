@@ -1,173 +1,97 @@
-# Phase 28: QVM Engine v3 with Adopted Insights Strategy
+# Vietnam Factor Investing Platform
 
-## Overview
+**Internal team repository for QVM factor investing system**
 
-This directory contains the complete implementation of the **QVM Engine v3 with Adopted Insights Strategy**, a sophisticated quantitative investment algorithm designed specifically for the Vietnamese equity market. The strategy incorporates comprehensive research insights from multiple analysis phases into a cohesive investment framework.
+## Current Status
 
-## 📁 Directory Structure
+**Working on:** Composite model underperformance issue
+- Value standalone: 0.91 Sharpe
+- Composite models: 0.44-0.59 Sharpe  
+- Need to debug weight optimization and normalization
 
-```
-phase28_strategy_merge/
-├── insights/                                    # Research insights and analysis
-│   ├── factor_ic.md                            # Factor Information Coefficients analysis
-│   ├── value_by_sector_and_quality.md          # Sector-specific P/E behavior
-│   ├── momentum_by_market_cap.md               # Multi-horizon momentum effectiveness
-│   ├── regime_switch_simple.md                 # Simple regime detection methodology
-│   └── phase26_regime_analysis.png             # Regime analysis visualization
-├── 28_qvm_engine_v3_adopted_insights.ipynb     # Main Jupyter notebook (phase27 format)
-├── 28_qvm_engine_v3_adopted_insights.md        # Markdown version of notebook
-├── qvm_engine_v3_adopted_insights.py           # Core strategy implementation
-├── test_qvm_engine_v3_adopted_insights.py      # Comprehensive test suite
-├── run_qvm_engine_v3_adopted_insights_backtest.py  # Full backtesting framework
-├── QVM_ENGINE_V3_ADOPTED_INSIGHTS_SUMMARY.md   # Comprehensive strategy documentation
-└── README.md                                   # This file
-```
+## Quick Start
 
-## 🎯 Strategy Features
-
-### ✅ **Core Components**
-- **Regime Detection**: Simple volatility/return based (4 regimes: Bull, Bear, Sideways, Stress)
-- **Factor Simplification**: ROAA only (dropped ROAE), P/E only (dropped P/B)
-- **Multi-horizon Momentum**: 1M, 3M, 6M, 12M with skip month
-- **Sector-aware P/E**: Quality-adjusted P/E by sector
-- **Look-ahead Bias Prevention**: 3-month lag for fundamentals, skip month for momentum
-- **Liquidity Filter**: >10bn daily ADTV
-- **Risk Management**: Position and sector limits
-
-### 📊 **Configuration**
-- **Backtest Period**: 2020-01-01 to 2024-12-31
-- **Rebalance Frequency**: Monthly
-- **Transaction Costs**: 30bps
-- **Target Portfolio Size**: 25 stocks
-- **Factor Weights**: ROAA (30%), P/E (30%), Momentum (40%)
-
-### 🏆 **Expected Performance**
-- **Annual Return**: 10-15% (depending on regime)
-- **Volatility**: 15-20%
-- **Sharpe Ratio**: 0.5-0.7
-- **Max Drawdown**: 15-25%
-- **Benchmark**: VNINDEX
-
-## 🔬 Research Basis
-
-The strategy is based on comprehensive insights from:
-
-### **Phase 26: Regime Detection**
-- Simple volatility/return based classification
-- 93.6% accuracy in regime identification
-- Dynamic allocation based on market conditions
-
-### **Factor IC Analysis**
-- 3M Momentum: Strongest positive predictor (+0.0214)
-- ROAA: Strong positive quality signal
-- Value Score: Strong contrarian signal (-0.0134)
-
-### **Sector Analysis**
-- Quality-adjusted P/E for different sectors
-- Banking sector: Quality-dependent P/E behavior
-- Non-banking sectors: Diverse factor patterns
-
-### **Market Cap Analysis**
-- Size effect reversal post-COVID
-- Favoring large caps in recent periods
-- Multi-horizon momentum effectiveness
-
-## 🚀 Usage
-
-### **1. Quick Start - Jupyter Notebook**
+### Daily Operations
 ```bash
-jupyter notebook 28_qvm_engine_v3_adopted_insights.ipynb
+# Production menu (Market Intel is now Option 0)
+python scripts/production_menu.py
+
+# Market intelligence only  
+python scripts/market_intelligence_menu.py
 ```
 
-### **2. Run Tests**
+### Key Options
+- **0.1** - Daily Alpha Pulse (terminal dashboard)
+- **7.3** - Incremental factor update (auto gap detection)
+- **5.5** - Processing pipeline status check
+
+## Repository Structure
+
+```
+production/
+├── market_intelligence/           # NEW: Terminal market dashboard
+│   └── terminal_daily_pulse.py   # Factual data only
+├── engine/
+│   ├── qvm_engine_v2_enhanced.py # Validated production engine
+│   └── adaptive_engine.py        # Risk-managed strategies
+├── universe/
+│   └── constructors.py           # Liquid universe (Top 200, 10B+ ADTV)
+└── tests/                        # Comprehensive test suite
+```
+
+## Recent Updates
+
+### Market Intelligence Platform
+- Terminal-based Daily Alpha Pulse operational
+- Shows VN-Index, market breadth, factor performance, top stocks
+- Access via production menu Option 0.1
+
+### Production Menu Redesign
+- Market Intelligence moved to Option 0 (prominent placement)
+- Side-by-side layout for better organization
+- Factor Generation moved to Section 7
+
+## Database
+
+**Main Tables:**
+- `factor_scores_qvm` - Factor scores (version-aware)
+- `equity_history` - Adjusted OHLCV (16+ years)
+- `vcsc_daily_data_complete` - Market microstructure
+- `v_comprehensive_fundamental_items` - Point-in-time fundamentals
+
+**Current Data Status:**
+- Q2 2025: Available in intermediaries
+- Temporal logic: Q1 2025 active until Aug 14
+- Recommended version: qvm_v2.0_enhanced
+
+## Key Commands
+
 ```bash
-python test_qvm_engine_v3_adopted_insights.py
+# Factor generation
+python production/scripts/run_factor_generation.py --start-date 2025-07-30 --end-date 2025-07-30 --version qvm_v2.0_enhanced
+
+# System health check
+python scripts/production_menu.py  # Option 3.6
+
+# Market intelligence
+python production/market_intelligence/terminal_daily_pulse.py
 ```
 
-### **3. Full Backtest**
-```bash
-python run_qvm_engine_v3_adopted_insights_backtest.py
-```
+## Team Notes
 
-### **4. Strategy Documentation**
-```bash
-cat QVM_ENGINE_V3_ADOPTED_INSIGHTS_SUMMARY.md
-```
+- **Database:** alphabeta (MySQL), requires VPN for remote access  
+- **Engine Status:** v2 Enhanced validated and production-ready
+- **Market Intel:** Terminal interface operational
+- **Current Focus:** Debugging composite model underperformance
 
-## 📊 Data Dependencies
+## Configuration
 
-### **Database**: `alphabeta` (Production)
-### **Tables**:
-- `vcsc_daily_data_complete` (price and volume data)
-- `intermediary_calculations_enhanced` (fundamental data)
-- `master_info` (sector classifications)
-- `etf_history` (benchmark data)
-
-## 🔧 Technical Implementation
-
-### **Core Classes**
-1. **`QVMEngineV3AdoptedInsights`**: Main strategy engine
-2. **`RegimeDetector`**: Market regime identification
-3. **`SectorAwareFactorCalculator`**: Sector-specific factor adjustments
-4. **`QVMEngineV3AdoptedInsightsBacktraderStrategy`**: Backtrader integration
-
-### **Key Methods**
-- `get_universe()`: Liquidity and market cap filtering
-- `calculate_factors()`: Multi-factor calculation with look-ahead bias prevention
-- `construct_portfolio()`: Risk-managed portfolio construction
-- `run_backtest()`: Complete backtesting execution
-
-## 📈 Performance Analysis
-
-### **Regime-Specific Performance**
-- **Bull Market**: 100% allocation, highest returns
-- **Bear Market**: 80% allocation, defensive positioning
-- **Sideways Market**: 60% allocation, selective exposure
-- **Stress Market**: 40% allocation, maximum protection
-
-### **Factor Effectiveness**
-- **3M Momentum**: Primary signal, strongest predictor
-- **ROAA**: Quality signal, positive correlation
-- **P/E**: Value contrarian, negative correlation
-- **Multi-horizon Momentum**: Risk-adjusted returns
-
-## 🛡️ Risk Management
-
-### **Position Limits**
-- Maximum position size: 5%
-- Target portfolio size: 25 stocks
-- Sector exposure limit: 30%
-
-### **Liquidity Requirements**
-- Minimum ADTV: 10 billion VND
-- Market cap filter: 1 trillion VND
-- Lookback period: 63 days
-
-### **Look-ahead Bias Prevention**
-- Fundamental data lag: 3 months
-- Momentum skip month: 1 month
-- Rolling window calculations
-
-## 📋 Status
-
-✅ **PRODUCTION READY** - The strategy is fully implemented and ready for deployment.
-
-### **Validation Status**
-- ✅ Strategy logic implemented
-- ✅ Database connectivity tested
-- ✅ Factor calculations validated
-- ✅ Portfolio construction verified
-- ✅ Backtesting framework ready
-- ✅ Documentation complete
-
-## 🎯 Next Steps
-
-1. **Execute Backtest**: Run the full 2020-2024 backtest
-2. **Performance Analysis**: Generate comprehensive tearsheet
-3. **Regime Analysis**: Analyze regime-specific performance
-4. **Optimization**: Fine-tune factor weights based on results
-5. **Production Deployment**: Deploy to live trading environment
+- `config/database.yml` - DB connection (not in repo)
+- `production/config/backtest_config.yml` - Backtesting parameters
+- `config/sector_mapping.yml` - Sector classifications
 
 ---
 
-**Note**: This strategy represents the culmination of extensive research and testing, incorporating the best practices and insights from multiple analysis phases. It is designed for institutional-grade portfolio management in the Vietnamese equity market.
+Author: Duc Nguyen  
+Last Updated: July 31, 2025
+>>>>>>> origin/master

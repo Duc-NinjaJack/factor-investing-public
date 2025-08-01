@@ -1,0 +1,101 @@
+# Institutional Grade Composite Backtesting Configuration
+# Phase 25b+ Structural Refactoring
+
+# === BACKTEST WINDOWS ===
+backtest_windows:
+  FULL_2016_2025:
+    start: "2016-01-01"
+    end: "2025-12-31"
+    description: "Full historical period including pre-liquidity era"
+  
+  LIQUID_2018_2025:
+    start: "2018-01-01" 
+    end: "2025-12-31"
+    description: "Post-IPO spike, includes 2018 market stress"
+  
+  POST_DERIV_2020_2025:
+    start: "2020-01-01"
+    end: "2025-12-31"
+    description: "High-liquidity era post VN30 derivatives launch"
+  
+  ADAPTIVE_2016_2025:
+    start: "2016-01-01"
+    end: "2025-12-31"
+    description: "Full period with adaptive liquidity weighting"
+
+# === ACTIVE CONFIGURATION ===
+active_window: "LIQUID_2018_2025"  # Change this to switch test periods
+
+# === INVESTMENT COMMITTEE HURDLES ===
+ic_hurdles:
+  annual_return_net: 0.15      # 15% net CAGR minimum
+  annual_volatility: 0.15      # 15% vol target
+  sharpe_ratio_net: 1.0        # Minimum Sharpe ratio
+  max_drawdown: -0.35          # -35% maximum drawdown
+  beta_vs_vnindex: 0.75        # Maximum beta vs VN-Index
+  information_ratio: 0.8       # Minimum information ratio
+
+# === UNIVERSE CONSTRUCTION ===
+universe:
+  method: "liquid_universe"
+  top_n_stocks: 200
+  min_adtv_vnd: 10_000_000_000  # 10B VND minimum
+  min_adtv_pct_mcap: 0.0004     # 0.04% of market cap
+  sector_concentration_limit: 0.25  # 25% max per sector
+  foreign_ownership_buffer: 0.03    # 3% minimum foreign room
+
+# === FACTOR WEIGHTS & OPTIMIZATION ===
+factor_optimization:
+  method: "walk_forward"
+  fit_window_months: 24
+  lock_window_months: 6
+  
+  # Bayesian priors for factor weights
+  priors:
+    value_min: 0.30      # Value must be >= 30%
+    quality_max: 0.25    # Quality capped at 25%
+    momentum_min: 0.25   # Momentum must be >= 25%
+    reversal_max: 0.10   # Reversal capped at 10%
+  
+  # Regularization
+  dirichlet_lambda: 0.05
+  max_weight_drift_per_period: 0.20
+
+# === COST MODEL ===
+cost_model:
+  base_cost_bps: 3             # 3 bps base cost
+  impact_coefficient: 0.15     # Square root impact factor
+  max_participation_rate: 0.05 # 5% max of ADTV
+  
+# === RISK OVERLAY ===
+risk_overlay:
+  volatility_target: 0.15      # 15% vol target
+  
+  # Regime detection
+  regime_vol_threshold: 0.25   # 25% rolling vol triggers regime
+  regime_dd_threshold: -0.10   # -10% drawdown triggers regime
+  regime_lookback_days: 63     # 63-day rolling window
+  regime_cooldown_days: 5      # 5-day cooldown between adjustments
+  
+  # Exposure calculation
+  method: "hybrid"             # min(vol_exposure, regime_exposure)
+
+# === LEVERAGE & PORTFOLIO ===
+portfolio:
+  base_leverage: 1.0           # No leverage baseline
+  max_leverage: 1.5            # Maximum 1.5x for aggressive variants
+  rebalance_frequency: "quarterly"  # Q, M, or custom
+  concentration_limit: 0.20    # 20% max single position
+
+# === BENCHMARK & ATTRIBUTION ===
+benchmark:
+  primary: "VN_INDEX"
+  secondary: "VNFIN_LEAD"      # Liquid-50 for microstructure comparison
+
+# === OUTPUT & REPORTING ===
+output:
+  save_factor_weights: true
+  save_portfolio_history: true  
+  save_cost_breakdown: true
+  generate_tearsheet: true
+  export_metrics_csv: true
