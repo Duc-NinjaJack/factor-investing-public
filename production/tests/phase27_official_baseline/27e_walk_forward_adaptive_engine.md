@@ -511,5 +511,23 @@ else:
     print("\nRECOMMENDATION: The Deep Alpha Enhancement sprint to add new, uncorrelated factors is now the mandatory next step.")
 
 
+================================================================================
+📊 FINAL PERFORMANCE REPORT: Walk-Forward Adaptive Strategy
+================================================================================
+Output is truncated. View as a scrollable element or open in a text editor. Adjust cell output settings...
+<Figure size 1800x3600 with 0 Axes>
 
+================================================================================
+🏆 INSTITUTIONAL VERDICT & RECOMMENDATION
+================================================================================
+---------------------------------------------------------------------------
+TypeError                                 Traceback (most recent call last)
+Cell In[10], line 39
+     36 sharpe_target = 1.0
+     37 dd_target = -35.0
+---> 39 sharpe_ok = final_metrics['Sharpe Ratio'] >= sharpe_target
+     40 dd_ok = final_metrics['Max Drawdown (%)'] >= dd_target
+     42 if sharpe_ok and dd_ok:
+
+TypeError: 'NoneType' object is not subscriptable
 
