@@ -23,6 +23,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from production.database.connection import get_database_manager
+# VND to billions conversion factor
+VND_TO_BILLIONS = 1e9  # 1 billion VND
+
 
 def test_simple_ttm():
     """Test TTM calculation step by step."""
@@ -86,7 +89,7 @@ def test_simple_ttm():
                 fv.ticker,
                 fv.year,
                 fv.quarter,
-                fv.value / 6222444702.01 as value,
+                fv.value / VND_TO_BILLIONS as value,
                 ROW_NUMBER() OVER (ORDER BY fv.year DESC, fv.quarter DESC) as rn
             FROM fundamental_values fv
             WHERE fv.ticker = '{test_ticker}'
@@ -119,7 +122,7 @@ def test_simple_ttm():
                 fv.ticker,
                 fv.year,
                 fv.quarter,
-                fv.value / 6222444702.01 as value,
+                fv.value / VND_TO_BILLIONS as value,
                 ROW_NUMBER() OVER (ORDER BY fv.year DESC, fv.quarter DESC) as rn
             FROM fundamental_values fv
             WHERE fv.ticker = '{test_ticker}'

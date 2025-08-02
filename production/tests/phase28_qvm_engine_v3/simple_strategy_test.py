@@ -24,6 +24,9 @@ if str(project_root) not in sys.path:
 
 from production.database.connection import get_database_manager
 
+# VND to billions conversion factor
+VND_TO_BILLIONS = 1e9  # 1 billion VND
+
 def simple_factor_calculation(universe, analysis_date, engine):
     """Simplified factor calculation that works."""
     try:
@@ -40,7 +43,7 @@ def simple_factor_calculation(universe, analysis_date, engine):
             WITH netprofit_ttm AS (
                 SELECT 
                     fv.ticker,
-                    SUM(fv.value / 6222444702.01) as netprofit_ttm
+                    SUM(fv.value / VND_TO_BILLIONS) as netprofit_ttm
                 FROM fundamental_values fv
                 WHERE fv.ticker IN ('{ticker_list}')
                 AND fv.item_id = 1
@@ -52,7 +55,7 @@ def simple_factor_calculation(universe, analysis_date, engine):
             totalassets_ttm AS (
                 SELECT 
                     fv.ticker,
-                    SUM(fv.value / 6222444702.01) as totalassets_ttm
+                    SUM(fv.value / VND_TO_BILLIONS) as totalassets_ttm
                 FROM fundamental_values fv
                 WHERE fv.ticker IN ('{ticker_list}')
                 AND fv.item_id = 2
@@ -64,7 +67,7 @@ def simple_factor_calculation(universe, analysis_date, engine):
             revenue_ttm AS (
                 SELECT 
                     fv.ticker,
-                    SUM(fv.value / 6222444702.01) as revenue_ttm
+                    SUM(fv.value / VND_TO_BILLIONS) as revenue_ttm
                 FROM fundamental_values fv
                 WHERE fv.ticker IN ('{ticker_list}')
                 AND fv.item_id = 2

@@ -24,6 +24,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from production.database.connection import get_database_manager
+# VND to billions conversion factor
+VND_TO_BILLIONS = 1e9  # 1 billion VND
+
 
 def find_vnm_sales_components():
     """Find VNM sales components in the database."""
@@ -51,7 +54,7 @@ def find_vnm_sales_components():
             fv.year,
             fv.quarter,
             fv.value,
-            fv.value / 6222444702.01 as value_bn
+            fv.value / VND_TO_BILLIONS as value_bn
         FROM fundamental_values fv
         WHERE fv.ticker = 'VNM'
         AND fv.statement_type = 'PL'
@@ -148,7 +151,7 @@ def find_vnm_sales_components():
         
         # Get Net Profit for Q2 2025
         net_profit_query = text("""
-            SELECT fv.value / 6222444702.01 as net_profit_bn
+            SELECT fv.value / VND_TO_BILLIONS as net_profit_bn
             FROM fundamental_values fv
             WHERE fv.ticker = 'VNM'
             AND fv.item_id = 1

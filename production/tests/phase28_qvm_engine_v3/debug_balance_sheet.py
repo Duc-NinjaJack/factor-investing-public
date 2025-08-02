@@ -23,6 +23,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from production.database.connection import get_database_manager
+# VND to billions conversion factor
+VND_TO_BILLIONS = 1e9  # 1 billion VND
+
 
 def debug_balance_sheet():
     """Debug Balance Sheet data availability."""
@@ -117,7 +120,7 @@ def debug_balance_sheet():
             fv.quarter,
             CASE 
                 WHEN mi.sector IS NOT NULL AND LOWER(mi.sector) LIKE '%bank%' THEN fv.value / 479618082.14
-                ELSE fv.value / 6222444702.01
+                ELSE fv.value / VND_TO_BILLIONS
             END as value,
             mi.sector
         FROM fundamental_values fv
