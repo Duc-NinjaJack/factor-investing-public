@@ -70,13 +70,46 @@ def get_business_days_lag(target_date, current_date: datetime) -> int:
     if hasattr(current_date, 'date'):
         current_date = current_date.date()
         
-    # Simple approximation - count all days and subtract weekends
-    total_days = (current_date - target_date).days
-    if total_days <= 0:
+    # If target date is today or future, no lag
+    if target_date >= current_date:
         return 0
     
-    # Rough estimate: subtract ~2/7 of days for weekends  
-    business_days = max(1, int(total_days * 5/7)) if total_days > 2 else total_days
+    # Calculate business days between dates
+    total_days = (current_date - target_date).days
+    if total_days == 0:
+        return 0
+    
+    business_days = 0
+    check_date = target_date
+    
+    while check_date < current_date:
+        check_date += timedelta(days=1)
+        # Only count weekdays (Monday=0, Sunday=6)
+        if check_date.weekday() < 5:  # Monday to Friday
+            business_days += 1
+    
+    # For market data, if it's the current trading day and before market close (say 3:30 PM ICT)
+    # and we have yesterday's data, that's considered current
+    if current_date.weekday() < 5:  # Today is a weekday
+        current_time = current_date if isinstance(current_date, datetime) else datetime.combine(current_date, datetime.min.time())
+        if hasattr(current_date, 'hour'):
+            current_time = current_date
+        else:
+            current_time = datetime.now()
+            
+        # If it's before market close (15:30 ICT) and we have previous trading day data
+        if current_time.hour < 15 or (current_time.hour == 15 and current_time.minute < 30):
+            # Check if target_date is the previous trading day
+            prev_trading_day = current_date
+            while prev_trading_day.weekday() >= 5:  # Go back to find last trading day
+                prev_trading_day -= timedelta(days=1)
+            prev_trading_day -= timedelta(days=1)  # One day before
+            while prev_trading_day.weekday() >= 5:  # Make sure it's a trading day
+                prev_trading_day -= timedelta(days=1)
+                
+            if target_date == prev_trading_day:
+                return 0  # Previous trading day data is considered current before market close
+    
     return business_days
 
 def check_market_data(cursor) -> Dict[str, Any]:
@@ -329,7 +362,13 @@ def generate_daily_data_status_report():
         market_data = check_market_data(cursor)
         
         if market_data['latest_date']:
-            lag_text = f"{market_data['market_lag']} day lag" if market_data['market_lag'] > 0 else "current"
+            if market_data['market_lag'] == 0:
+                lag_text = "current"
+            elif market_data['market_lag'] == 1:
+                lag_text = "1 trading day lag"
+            else:
+                lag_text = f"{market_data['market_lag']} trading days lag"
+            
             stock_text = f"({market_data['latest_date_stocks']} stocks)"
             print(format_status(market_data['market_lag'] <= 1, 
                               f"Latest Date: {market_data['latest_date'].strftime('%Y-%m-%d')} {stock_text} - {lag_text}"))
@@ -337,7 +376,13 @@ def generate_daily_data_status_report():
             print(format_status(False, "No market data found"))
         
         if market_data['etf_latest_date']:
-            etf_lag_text = f"{market_data['etf_lag']} day lag" if market_data['etf_lag'] > 0 else "current"
+            if market_data['etf_lag'] == 0:
+                etf_lag_text = "current"
+            elif market_data['etf_lag'] == 1:
+                etf_lag_text = "1 trading day lag"
+            else:
+                etf_lag_text = f"{market_data['etf_lag']} trading days lag"
+                
             print(format_status(market_data['etf_lag'] <= 1,
                               f"ETF Data: {market_data['etf_latest_date'].strftime('%Y-%m-%d')} (VNINDEX available) - {etf_lag_text}"))
         else:
@@ -348,7 +393,13 @@ def generate_daily_data_status_report():
         vcsc_data = check_vcsc_data(cursor)
         
         if vcsc_data['latest_date']:
-            lag_text = f"{vcsc_data['vcsc_lag']} day lag" if vcsc_data['vcsc_lag'] > 0 else "current"
+            if vcsc_data['vcsc_lag'] == 0:
+                lag_text = "current"
+            elif vcsc_data['vcsc_lag'] == 1:
+                lag_text = "1 trading day lag"
+            else:
+                lag_text = f"{vcsc_data['vcsc_lag']} trading days lag"
+                
             record_text = f"({vcsc_data['latest_date_records']} stocks)"
             print(format_status(vcsc_data['vcsc_lag'] <= 2,
                               f"Latest Date: {vcsc_data['latest_date'].strftime('%Y-%m-%d')} {record_text} - {lag_text}"))
