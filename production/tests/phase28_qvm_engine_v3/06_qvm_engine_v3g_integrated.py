@@ -1095,24 +1095,100 @@ class QVMEngineV3gIntegrated:
         print(f"   - daily_holdings date range: {daily_holdings.index.min()} to {daily_holdings.index.max()}")
         print(f"   - Non-zero holdings count: {(daily_holdings != 0).sum().sum()}")
         
+        # Debug daily_holdings values
+        print(f"   - daily_holdings sum range: {daily_holdings.sum(axis=1).min():.6f} to {daily_holdings.sum(axis=1).max():.6f}")
+        print(f"   - daily_holdings max value: {daily_holdings.max().max():.6f}")
+        print(f"   - daily_holdings min value: {daily_holdings.min().min():.6f}")
+        
+        # Debug returns_matrix
+        returns_matrix = self.preloaded_data['price_data']['returns_matrix']
+        print(f"   - returns_matrix shape: {returns_matrix.shape}")
+        print(f"   - returns_matrix range: {returns_matrix.min().min():.6f} to {returns_matrix.max().max():.6f}")
+        print(f"   - returns_matrix mean: {returns_matrix.mean().mean():.6f}")
+        
+        # Calculate holdings_shifted (previous day's holdings)
         holdings_shifted = daily_holdings.shift(1).fillna(0.0)
-        gross_returns = (holdings_shifted * self.price_data['returns_matrix']).sum(axis=1)
+        print(f"   - holdings_shifted sum range: {holdings_shifted.sum(axis=1).min():.6f} to {holdings_shifted.sum(axis=1).max():.6f}")
+        
+        # Calculate gross returns with bounds checking
+        gross_returns = (holdings_shifted * returns_matrix).sum(axis=1)
+        
+        # Debug gross returns calculation
+        print(f"   - gross_returns shape: {gross_returns.shape}")
+        print(f"   - gross_returns range: {gross_returns.min():.6f} to {gross_returns.max():.6f}")
+        print(f"   - gross_returns mean: {gross_returns.mean():.6f}")
+        print(f"   - Non-zero gross returns count: {(gross_returns != 0).sum()}")
+        print(f"   - First non-zero return date: {gross_returns.loc[gross_returns.ne(0)].index.min() if (gross_returns != 0).any() else 'None'}")
+        print(f"   - Last non-zero return date: {gross_returns.loc[gross_returns.ne(0)].index.max() if (gross_returns != 0).any() else 'None'}")
+        
+        # Check for extreme values
+        extreme_returns = gross_returns[abs(gross_returns) > 0.1]  # More than 10% daily return
+        if not extreme_returns.empty:
+            print(f"   ⚠️ WARNING: Found {len(extreme_returns)} extreme returns (>10%):")
+            print(f"      - Max return: {extreme_returns.max():.6f}")
+            print(f"      - Min return: {extreme_returns.min():.6f}")
+            print(f"      - Sample dates: {extreme_returns.head().index.tolist()}")
         
         # Calculate turnover and costs
         turnover = (holdings_shifted - holdings_shifted.shift(1)).abs().sum(axis=1) / 2.0
         costs = turnover * (self.config['transaction_cost_bps'] / 10000)
+        
+        # Debug transaction costs
+        print(f"   - transaction_costs range: {costs.min():.6f} to {costs.max():.6f}")
+        print(f"   - transaction_costs mean: {costs.mean():.6f}")
+        
+        # Calculate net returns
         net_returns = (gross_returns - costs).rename(self.config['strategy_name'])
         
-        print(f"   - gross_returns shape: {gross_returns.shape}")
-        print(f"   - gross_returns date range: {gross_returns.index.min()} to {gross_returns.index.max()}")
-        print(f"   - Non-zero gross returns count: {(gross_returns != 0).sum()}")
-        print(f"   - First non-zero return date: {gross_returns[gross_returns != 0].index.min() if (gross_returns != 0).any() else 'None'}")
-        print(f"   - Last non-zero return date: {gross_returns[gross_returns != 0].index.max() if (gross_returns != 0).any() else 'None'}")
+        # Debug net returns
+        print(f"   - net_returns range: {net_returns.min():.6f} to {net_returns.max():.6f}")
+        print(f"   - net_returns mean: {net_returns.mean():.6f}")
         
-        print("\n💸 Net returns calculated.")
-        print(f"   - Total Gross Return: {(1 + gross_returns).prod() - 1:.2%}")
-        print(f"   - Total Net Return: {(1 + net_returns).prod() - 1:.2%}")
-        print(f"   - Total Cost Drag: {(gross_returns.sum() - net_returns.sum()):.2%}")
+        # Check for infinite or NaN values
+        if np.isinf(net_returns).any():
+            print(f"   ❌ ERROR: Found {np.isinf(net_returns).sum()} infinite values in net_returns")
+        if np.isnan(net_returns).any():
+            print(f"   ❌ ERROR: Found {np.isnan(net_returns).sum()} NaN values in net_returns")
+        
+        # Calculate cumulative returns with bounds checking
+        cumulative_returns = (1 + net_returns).cumprod()
+        
+        # Debug cumulative returns
+        print(f"   - cumulative_returns range: {cumulative_returns.min():.6f} to {cumulative_returns.max():.6f}")
+        print(f"   - cumulative_returns final value: {cumulative_returns.iloc[-1]:.6f}")
+        
+        # Check for infinite or NaN values in cumulative returns
+        if np.isinf(cumulative_returns).any():
+            print(f"   ❌ ERROR: Found {np.isinf(cumulative_returns).sum()} infinite values in cumulative_returns")
+            # Find where infinity starts
+            inf_start = cumulative_returns[np.isinf(cumulative_returns)].index.min()
+            print(f"   ❌ Infinity starts at: {inf_start}")
+            # Show the returns around that time
+            start_idx = cumulative_returns.index.get_loc(inf_start) - 5
+            end_idx = min(start_idx + 10, len(cumulative_returns))
+            print(f"   ❌ Returns around infinity start:")
+            for i in range(start_idx, end_idx):
+                date = cumulative_returns.index[i]
+                print(f"      {date}: net_return={net_returns.iloc[i]:.6f}, cum_return={cumulative_returns.iloc[i]:.6f}")
+        
+        if np.isnan(cumulative_returns).any():
+            print(f"   ❌ ERROR: Found {np.isnan(cumulative_returns).sum()} NaN values in cumulative_returns")
+        
+        # Calculate total metrics with bounds checking
+        try:
+            total_gross_return = (1 + gross_returns).prod() - 1
+            total_net_return = cumulative_returns.iloc[-1] - 1
+            total_cost_drag = total_gross_return - total_net_return
+            
+            print(f"\n💸 Net returns calculated.")
+            print(f"   - Total Gross Return: {total_gross_return:.2%}")
+            print(f"   - Total Net Return: {total_net_return:.2%}")
+            print(f"   - Total Cost Drag: {total_cost_drag:.2%}")
+        except Exception as e:
+            print(f"   ❌ ERROR calculating total metrics: {e}")
+            total_gross_return = float('inf')
+            total_net_return = float('inf')
+            total_cost_drag = float('nan')
         
         return net_returns
 
