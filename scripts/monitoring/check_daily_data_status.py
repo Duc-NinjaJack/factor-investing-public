@@ -292,6 +292,99 @@ def check_data_quality(cursor) -> Dict[str, Any]:
         'is_healthy': len(issues) <= 1  # Allow up to 1 minor issue
     }
 
+def check_available_columns(cursor) -> Dict[str, List[str]]:
+    """Check what data columns are available in each table"""
+    
+    available_columns = {}
+    
+    # Check equity_history columns
+    cursor.execute("""
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'equity_history'
+        ORDER BY ORDINAL_POSITION
+    """)
+    equity_columns = [row[0] for row in cursor.fetchall()]
+    available_columns['equity_history'] = equity_columns
+    
+    # Check vcsc_daily_data_complete columns
+    cursor.execute("""
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'vcsc_daily_data_complete'
+        ORDER BY ORDINAL_POSITION
+    """)
+    vcsc_columns = [row[0] for row in cursor.fetchall()]
+    available_columns['vcsc_daily_data_complete'] = vcsc_columns
+    
+    # Check etf_history columns
+    cursor.execute("""
+        SELECT COLUMN_NAME 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() 
+        AND TABLE_NAME = 'etf_history'
+        ORDER BY ORDINAL_POSITION
+    """)
+    etf_columns = [row[0] for row in cursor.fetchall()]
+    available_columns['etf_history'] = etf_columns
+    
+    # Categorize columns by type
+    categorized_columns = {}
+    
+    # For equity_history
+    equity_categories = {
+        'Price Data': ['open', 'high', 'low', 'close', 'adj_close'],
+        'Volume Data': ['volume'],
+        'Identifiers': ['ticker', 'date', 'created_at', 'updated_at']
+    }
+    
+    # For vcsc_daily_data_complete
+    vcsc_categories = {
+        'Price Data': ['open_price', 'high_price', 'low_price', 'close_price', 
+                      'average_price', 'prior_close_price', 'ceiling_price', 'floor_price'],
+        'Volume Data': ['total_volume', 'total_value', 'put_through_volume', 'put_through_value'],
+        'Market Cap': ['market_cap'],
+        'Foreign Flow': ['foreign_buy_volume', 'foreign_buy_value', 'foreign_sell_volume', 
+                        'foreign_sell_value', 'foreign_net_volume', 'foreign_net_value',
+                        'foreign_buy_volume_total', 'foreign_buy_value_total',
+                        'foreign_sell_volume_total', 'foreign_sell_value_total',
+                        'foreign_net_volume_total', 'foreign_net_value_total'],
+        'Order Book': ['bid_price1', 'bid_volume1', 'bid_price2', 'bid_volume2', 
+                      'bid_price3', 'bid_volume3', 'ask_price1', 'ask_volume1',
+                      'ask_price2', 'ask_volume2', 'ask_price3', 'ask_volume3'],
+        'Identifiers': ['ticker', 'trading_date', 'created_at', 'updated_at']
+    }
+    
+    # Map available columns to categories
+    for table, columns in available_columns.items():
+        categorized_columns[table] = {}
+        
+        if table == 'equity_history':
+            categories = equity_categories
+        elif table == 'vcsc_daily_data_complete':
+            categories = vcsc_categories
+        else:
+            # For other tables, just list all columns
+            categorized_columns[table] = {'All Columns': columns}
+            continue
+            
+        for category, expected_cols in categories.items():
+            found_cols = [col for col in expected_cols if col in columns]
+            if found_cols:
+                categorized_columns[table][category] = found_cols
+        
+        # Add any uncategorized columns
+        all_categorized = set()
+        for cols in categories.values():
+            all_categorized.update(cols)
+        uncategorized = [col for col in columns if col not in all_categorized]
+        if uncategorized:
+            categorized_columns[table]['Other'] = uncategorized
+    
+    return categorized_columns
+
 def check_pipeline_health(cursor) -> Dict[str, Any]:
     """Check data pipeline health and freshness"""
     
@@ -432,7 +525,40 @@ def generate_daily_data_status_report():
         else:
             print(format_warning(f"Price Reconciliation: {quality_data['price_mismatches']} significant mismatches"))
         
-        # 4. Pipeline Health
+        # 4. Available Data Columns
+        print(f"\n{Colors.BOLD}📋 AVAILABLE DATA COLUMNS:{Colors.ENDC}")
+        columns_data = check_available_columns(cursor)
+        
+        # Display equity_history columns
+        if 'equity_history' in columns_data:
+            print(f"\n{Colors.CYAN}▸ equity_history:{Colors.ENDC}")
+            for category, cols in columns_data['equity_history'].items():
+                if cols:
+                    cols_str = ', '.join(cols)
+                    print(f"  • {category}: {cols_str}")
+        
+        # Display vcsc_daily_data_complete columns
+        if 'vcsc_daily_data_complete' in columns_data:
+            print(f"\n{Colors.CYAN}▸ vcsc_daily_data_complete:{Colors.ENDC}")
+            for category, cols in columns_data['vcsc_daily_data_complete'].items():
+                if cols:
+                    if category == 'Foreign Flow':
+                        # Show foreign flow columns more compactly
+                        print(f"  • {category}: {len(cols)} columns (buy/sell/net volumes & values)")
+                    elif category == 'Order Book':
+                        print(f"  • {category}: {len(cols)} columns (3-level bid/ask)")
+                    else:
+                        cols_str = ', '.join(cols)
+                        print(f"  • {category}: {cols_str}")
+        
+        # Display etf_history columns
+        if 'etf_history' in columns_data:
+            print(f"\n{Colors.CYAN}▸ etf_history:{Colors.ENDC}")
+            if 'All Columns' in columns_data['etf_history']:
+                cols_str = ', '.join(columns_data['etf_history']['All Columns'])
+                print(f"  • Columns: {cols_str}")
+        
+        # 5. Pipeline Health
         print(f"\n{Colors.BOLD}📊 PIPELINE SUMMARY:{Colors.ENDC}")
         pipeline_data = check_pipeline_health(cursor)
         
