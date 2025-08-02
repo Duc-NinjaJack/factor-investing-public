@@ -1,154 +1,132 @@
 #!/usr/bin/env python3
 """
-Test Regime Detection Script
-============================
-
-This script tests the regime detection logic with the adjusted thresholds
-to ensure it properly identifies different market regimes.
+Test script for QVM Engine v3e percentile-based regime detection
 """
 
-import sys
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from sqlalchemy import create_engine, text
+import yaml
+from datetime import datetime, timedelta
 
-# Add project root to path
-current_path = Path.cwd()
-while not (current_path / 'production').is_dir():
-    if current_path.parent == current_path:
-        raise FileNotFoundError("Could not find the 'production' directory.")
-    current_path = current_path.parent
+# Import the regime detector
+import importlib.util
+spec = importlib.util.spec_from_file_location('qvm_v3e', '06_qvm_engine_v3e_fixed.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
 
-project_root = current_path
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+RegimeDetector = module.RegimeDetector
 
-from production.database.connection import get_database_manager
-
-class RegimeDetector:
-    """
-    Simple regime detection based on volatility and return thresholds.
-    Based on insights from phase26_regime_analysis.
-    """
-    def __init__(self, lookback_period: int = 60):
-        self.lookback_period = lookback_period
+def create_test_data():
+    """Create test price data with different market conditions"""
+    np.random.seed(42)
     
-    def detect_regime(self, price_data: pd.DataFrame) -> str:
-        """Detect market regime based on volatility and return."""
-        if len(price_data) < self.lookback_period:
-            return 'Sideways'
-        
-        recent_data = price_data.tail(self.lookback_period)
-        returns = recent_data['close'].pct_change().dropna()
-        
-        volatility = returns.std()
-        avg_return = returns.mean()
-        
-        # Adjusted thresholds for Vietnamese market (more sensitive)
-        if volatility > 0.015:  # High volatility (reduced from 0.02)
-            if avg_return > 0.005:  # High return (reduced from 0.01)
-                return 'Bull'
-            else:
-                return 'Bear'
-        else:  # Low volatility
-            if abs(avg_return) < 0.002:  # Low return (reduced from 0.005)
-                return 'Sideways'
-            else:
-                return 'Stress'
+    # Create date range
+    dates = pd.date_range('2020-01-01', '2023-12-31', freq='D')
     
-    def get_regime_allocation(self, regime: str) -> float:
-        """Get target allocation based on regime."""
-        regime_allocations = {
-            'Bull': 1.0,      # Fully invested
-            'Bear': 0.8,      # 80% invested
-            'Sideways': 0.6,  # 60% invested
-            'Stress': 0.4     # 40% invested
-        }
-        return regime_allocations.get(regime, 0.6)
+    # Create different market regimes
+    data = []
+    
+    # Normal regime (first 200 days)
+    normal_returns = np.random.normal(0.0005, 0.015, 200)
+    normal_prices = 1000 * np.exp(np.cumsum(normal_returns))
+    
+    # Momentum regime (next 100 days)
+    momentum_returns = np.random.normal(0.002, 0.025, 100)
+    momentum_prices = normal_prices[-1] * np.exp(np.cumsum(momentum_returns))
+    
+    # Stress regime (next 100 days)
+    stress_returns = np.random.normal(-0.001, 0.030, 100)
+    stress_prices = momentum_prices[-1] * np.exp(np.cumsum(stress_returns))
+    
+    # Back to normal (remaining days)
+    remaining_days = len(dates) - 400
+    final_returns = np.random.normal(0.0003, 0.018, remaining_days)
+    final_prices = stress_prices[-1] * np.exp(np.cumsum(final_returns))
+    
+    # Combine all prices
+    all_prices = np.concatenate([normal_prices, momentum_prices, stress_prices, final_prices])
+    
+    # Create DataFrame
+    price_data = pd.DataFrame({
+        'close': all_prices
+    }, index=dates[:len(all_prices)])
+    
+    return price_data
 
 def test_regime_detection():
-    """Test regime detection with real market data."""
-    print("🔍 Testing Regime Detection with Adjusted Thresholds")
+    """Test the regime detection with different market conditions"""
+    print("Testing QVM Engine v3e - Percentile-based Regime Detection")
     print("=" * 60)
     
-    # Connect to database
-    db_manager = get_database_manager()
-    engine = db_manager.get_engine()
+    # Load configuration from config file
+    try:
+        with open('config/config_v3e_percentile_regime.yml', 'r') as f:
+            config = yaml.safe_load(f)
+        regime_config = config.get('regime', {})
+        print("Configuration loaded from config/config_v3e_percentile_regime.yml")
+    except FileNotFoundError:
+        print("Config file not found, using default configuration")
+        regime_config = {
+            'lookback_period': 90,
+            'volatility_percentile_high': 75.0,
+            'return_percentile_high': 75.0,
+            'return_percentile_low': 25.0
+        }
     
-    # Get VN-Index data for testing
-    query = text("""
-        SELECT date, close
-        FROM etf_history
-        WHERE ticker = 'VNINDEX' 
-        AND date >= '2020-01-01'
-        ORDER BY date
-    """)
-    
-    benchmark_data = pd.read_sql(query, engine, parse_dates=['date'])
-    benchmark_data = benchmark_data.set_index('date')
-    
-    # Calculate returns
-    benchmark_data['return'] = benchmark_data['close'].pct_change()
+    # Create test data
+    price_data = create_test_data()
+    print(f"Created test data: {len(price_data)} days")
     
     # Initialize regime detector
-    detector = RegimeDetector(lookback_period=60)
+    regime_detector = RegimeDetector(
+        lookback_period=regime_config.get('lookback_period', 90),
+        volatility_percentile_high=regime_config.get('volatility_percentile_high', 75.0),
+        return_percentile_high=regime_config.get('return_percentile_high', 75.0),
+        return_percentile_low=regime_config.get('return_percentile_low', 25.0)
+    )
     
-    # Test regime detection at different points
-    test_dates = [
-        '2020-03-30',  # COVID crash
-        '2020-07-30',  # Recovery
-        '2021-01-29',  # Bull market
-        '2022-03-30',  # Ukraine war
-        '2023-01-30',  # Sideways
-        '2024-01-30',  # Recent
-        '2025-01-30'   # Latest
-    ]
+    # Test regime detection over time
+    regimes = []
+    allocations = []
     
-    print("\n📊 Regime Detection Results:")
-    print("-" * 60)
+    for i in range(100, len(price_data), 10):  # Test every 10 days
+        current_data = price_data.iloc[:i+1]
+        regime = regime_detector.detect_regime(current_data)
+        allocation = regime_detector.get_regime_allocation(regime)
+        
+        regimes.append(regime)
+        allocations.append(allocation)
+        
+        if i % 200 == 0:
+            print(f"Day {i}: Regime = {regime}, Allocation = {allocation:.2f}")
     
-    regime_counts = {'Bull': 0, 'Bear': 0, 'Sideways': 0, 'Stress': 0}
-    
-    for test_date in test_dates:
-        try:
-            # Get data up to test date
-            data_up_to_date = benchmark_data.loc[:test_date]
-            
-            if len(data_up_to_date) >= 60:
-                # Create price series for regime detection
-                price_series = (1 + data_up_to_date['return']).cumprod()
-                price_data = pd.DataFrame({'close': price_series})
-                
-                # Detect regime
-                regime = detector.detect_regime(price_data)
-                allocation = detector.get_regime_allocation(regime)
-                
-                # Calculate actual metrics for verification
-                recent_returns = data_up_to_date['return'].tail(60)
-                volatility = recent_returns.std()
-                avg_return = recent_returns.mean()
-                
-                print(f"📅 {test_date}: {regime} (Allocation: {allocation:.1%})")
-                print(f"   Volatility: {volatility:.4f}, Avg Return: {avg_return:.4f}")
-                
-                regime_counts[regime] += 1
-            else:
-                print(f"📅 {test_date}: Insufficient data")
-                
-        except Exception as e:
-            print(f"📅 {test_date}: Error - {e}")
-    
-    print("\n📈 Regime Distribution:")
-    print("-" * 30)
-    total_tests = sum(regime_counts.values())
+    # Analyze results
+    regime_counts = pd.Series(regimes).value_counts()
+    print(f"\nRegime Distribution:")
+    print("=" * 30)
     for regime, count in regime_counts.items():
-        percentage = (count / total_tests * 100) if total_tests > 0 else 0
-        print(f"   {regime}: {count} times ({percentage:.1f}%)")
+        percentage = (count / len(regimes)) * 100
+        print(f"{regime}: {count} ({percentage:.1f}%)")
     
-    print(f"\n✅ Regime detection test completed!")
-    print(f"   - Total test periods: {total_tests}")
-    print(f"   - Regimes detected: {sum(1 for count in regime_counts.values() if count > 0)}")
+    # Check if multiple regimes are detected
+    unique_regimes = len(regime_counts)
+    print(f"\nUnique regimes detected: {unique_regimes}")
+    
+    if unique_regimes > 1:
+        print("✅ SUCCESS: Multiple regimes detected - percentile-based approach is working!")
+    else:
+        print("❌ ISSUE: Only one regime detected - needs investigation")
+    
+    # Show allocation distribution
+    allocation_series = pd.Series(allocations)
+    print(f"\nAllocation Statistics:")
+    print("=" * 30)
+    print(f"Mean allocation: {allocation_series.mean():.3f}")
+    print(f"Std allocation: {allocation_series.std():.3f}")
+    print(f"Min allocation: {allocation_series.min():.3f}")
+    print(f"Max allocation: {allocation_series.max():.3f}")
+    
+    return regime_counts, allocation_series
 
 if __name__ == "__main__":
-    test_regime_detection() 
+    regime_counts, allocations = test_regime_detection() 

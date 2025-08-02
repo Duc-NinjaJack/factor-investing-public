@@ -1,0 +1,50 @@
+# QVM Engine v3e Configuration - Percentile-based Regime Detection
+# This configuration replaces hard-coded thresholds with dynamic percentile-based regime detection
+
+# Backtest period
+start_date: "2016-01-01"
+end_date: "2025-01-01"
+
+# Regime Detection Configuration - Percentile-based approach
+regime:
+  lookback_period: 90                    # Days to look back for percentile calculation
+  volatility_percentile_high: 75.0       # 75th percentile for high volatility threshold
+  return_percentile_high: 75.0           # 75th percentile for high return threshold
+  return_percentile_low: 25.0            # 25th percentile for low return threshold
+  
+  # Regime classification logic:
+  # - High volatility (>75th percentile) + High return (>75th percentile) = "momentum"
+  # - High volatility (>75th percentile) + Low return (<25th percentile) = "stress"
+  # - Low volatility + Normal return = "normal"
+
+# Portfolio allocation by regime
+allocation:
+  momentum: 0.8    # High allocation in momentum regime
+  stress: 0.3      # Low allocation in stress regime  
+  normal: 0.6      # Moderate allocation in normal regime
+
+# Factor calculation parameters
+factors:
+  momentum:
+    periods: [20, 60, 120]  # Days for momentum calculation
+    weights: [0.5, 0.3, 0.2]  # Weights for momentum periods
+  
+  value:
+    pe_weight: 0.4  # Weight for PE factor in composite score
+    momentum_weight: 0.6  # Weight for momentum factor in composite score
+
+# Universe construction
+universe:
+  min_data_days: 120  # Minimum days of price data required
+  min_market_cap: 1000  # Minimum market cap filter
+  max_stocks: 50  # Maximum number of stocks in portfolio
+
+# Rebalancing
+rebalancing:
+  frequency: "daily"  # Rebalancing frequency
+  transaction_cost: 0.001  # Transaction cost as percentage
+
+# Performance metrics
+performance:
+  periods_per_year: 252  # Trading days per year
+  risk_free_rate: 0.02   # Risk-free rate for Sharpe ratio calculation 
