@@ -259,6 +259,7 @@ def show_main_menu():
     print("1.3 - VCSC Complete Data          │ 4.3 - Pre-Trade Compliance")
     print("1.4 - Foreign Flow Data           │ 4.4 - Export Trade List")
     print("1.5 - 🔄 FULL DAILY UPDATE        │ 4.5 - Post-Trade Reconciliation")
+    print("1.6 - 📊 Daily Data Status        │")
     print("                                  │")
     
     # Dynamic quarterly section header based on urgency
@@ -328,6 +329,16 @@ def handle_daily_updates(choice: str):
         print("Order: Market Data → Financial Info → VCSC → Foreign Flows")
         if confirm_action("Run full daily update?"):
             return run_workflow_command("full-daily")
+    
+    elif choice == '1.6':
+        print_header("DAILY DATA STATUS CHECK", "-")
+        print_info("Comprehensive status check for all daily data sources...")
+        print_info("This includes:")
+        print("  • Market data freshness (equity_history)")
+        print("  • VCSC data completeness and foreign flows")
+        print("  • Data quality metrics and anomaly detection")
+        print("  • Pipeline health monitoring")
+        return run_script("scripts/monitoring/check_daily_data_status.py")
 
 def handle_quarterly_updates(choice: str):
     """Handle quarterly fundamental data updates"""
