@@ -1,14 +1,14 @@
-# %% [markdown]
-# # QVM Engine v3f - Top 200 Universe Implementation
-#
-# **Objective:** Complete implementation of QVM Engine v3f with top 200 stocks by ADTV
-# and comprehensive performance analysis including equity curve generation.
-#
-# **File:** 06_qvm_engine_v3f.py
-#
-# ---
+# QVM Engine v3h - Fixed Regime Corrected Implementation
 
-# %% [code]
+"""
+QVM Engine v3h Fixed Regime - CORRECTED IMPLEMENTATION
+
+**Objective:** Complete implementation of QVM Engine v3h with fixed regime detection
+and comprehensive performance analysis including equity curve generation.
+
+**File:** 06_qvm_engine_v3h_fixed_regime_corrected.py
+"""
+
 # Core scientific libraries
 import pandas as pd
 import numpy as np
@@ -27,9 +27,7 @@ from sqlalchemy import create_engine, text
 
 # --- Environment Setup ---
 warnings.filterwarnings('ignore')
-# Removed global pandas display format to avoid interference with percentage displays
 
-# %% [code]
 # --- Add Project Root to Python Path ---
 try:
     current_path = Path.cwd()
@@ -54,11 +52,50 @@ except (ImportError, FileNotFoundError) as e:
     print(f"   - Error: {e}")
     raise
 
+# --- QVM Engine v3h Fixed Regime Configuration ---
+QVM_CONFIG = {
+    # --- Backtest Parameters ---
+    "strategy_name": "QVM_Engine_v3h_Fixed_Regime_Corrected",
+    "backtest_start_date": "2016-01-01",
+    "backtest_end_date": "2025-07-28",
+    "rebalance_frequency": "M", # Monthly
+    "transaction_cost_bps": 30, # Flat 30bps
+    
+    # --- Universe Construction ---
+    "universe": {
+        "lookback_days": 63,
+        "top_n_stocks": 200,  # Top 200 stocks by ADTV
+        "max_position_size": 0.05,
+        "max_sector_exposure": 0.30,
+        "target_portfolio_size": 20,
+    },
+    
+    # --- Factor Configuration ---
+    "factors": {
+        "roaa_weight": 0.3,
+        "pe_weight": 0.3,
+        "momentum_weight": 0.4,
+        "momentum_horizons": [21, 63, 126, 252], # 1M, 3M, 6M, 12M
+        "skip_months": 1,
+        "fundamental_lag_days": 45,  # 45-day lag for announcement delay
+    },
+    
+    "regime": {
+        "lookback_period": 90,          # 90 days lookback period
+        "volatility_threshold": 0.0140, # 1.40% (75th percentile from real data)
+        "return_threshold": 0.0012,     # 0.12% (75th percentile from real data)
+        "low_return_threshold": 0.0004  # 0.04% (25th percentile from real data)
+    }
+}
 
-# %% [code]
-# --- QVM Engine v3f Top 200 Universe Configuration ---QVM_CONFIG = {    # --- Backtest Parameters ---    "strategy_name": "QVM_Engine_v3h_Fixed_Regime_Corrected",    "backtest_start_date": "2016-01-01",    "backtest_end_date": "2025-07-28",    "rebalance_frequency": "M", # Monthly    "transaction_cost_bps": 30, # Flat 30bps    # --- Universe Construction ---    "universe": {        "lookback_days": 63,        "top_n_stocks": 200,  # Top 200 stocks by ADTV        "max_position_size": 0.05,        "max_sector_exposure": 0.30,        "target_portfolio_size": 20,    },    # --- Factor Configuration ---    "factors": {        "roaa_weight": 0.3,        "pe_weight": 0.3,        "momentum_weight": 0.4,        "momentum_horizons": [21, 63, 126, 252], # 1M, 3M, 6M, 12M        "skip_months": 1,        "fundamental_lag_days": 45,  # 45-day lag for announcement delay    },    "regime": {        "lookback_period": 90,          # 90 days lookback period        "volatility_threshold": 0.0140, # 1.40% (75th percentile from real data)        "return_threshold": 0.0012,     # 0.12% (75th percentile from real data)        "low_return_threshold": 0.0004  # 0.04% (25th percentile from real data)    }}print("\n⚙️  QVM Engine v3h Fixed Regime Configuration Loaded:")print(f"   - Strategy: {QVM_CONFIG['strategy_name']}")print(f"   - Period: {QVM_CONFIG['backtest_start_date']} to {QVM_CONFIG['backtest_end_date']}")print(f"   - Universe: Top {QVM_CONFIG['universe']['top_n_stocks']} stocks by ADTV")print(f"   - Factors: ROAA + P/E + Multi-horizon Momentum")print(f"   - Regime Detection: Fixed thresholds with 4-regime classification")print(f"   - Regime Thresholds: Vol={QVM_CONFIG['regime']['volatility_threshold']:.2%} (75th), Ret={QVM_CONFIG['regime']['return_threshold']:.2%} (75th), LowRet={QVM_CONFIG['regime']['low_return_threshold']:.2%} (25th)") 
+print("\n⚙️  QVM Engine v3h Fixed Regime Configuration Loaded:")
+print(f"   - Strategy: {QVM_CONFIG['strategy_name']}")
+print(f"   - Period: {QVM_CONFIG['backtest_start_date']} to {QVM_CONFIG['backtest_end_date']}")
+print(f"   - Universe: Top {QVM_CONFIG['universe']['top_n_stocks']} stocks by ADTV")
+print(f"   - Factors: ROAA + P/E + Multi-horizon Momentum")
+print(f"   - Regime Detection: Fixed thresholds with 4-regime classification")
+print(f"   - Regime Thresholds: Vol={QVM_CONFIG['regime']['volatility_threshold']:.2%} (75th), Ret={QVM_CONFIG['regime']['return_threshold']:.2%} (75th), LowRet={QVM_CONFIG['regime']['low_return_threshold']:.2%} (25th)")
 
-# %% [code]
 # --- Database Connection ---
 def create_db_connection():
     """Establishes a SQLAlchemy database engine connection."""
@@ -80,14 +117,10 @@ def create_db_connection():
 engine = create_db_connection()
 
 if engine is None:
-    raise ConnectionError("Database connection failed. Halting execution.") 
+    raise ConnectionError("Database connection failed. Halting execution.")
 
-# %% [markdown]
-# ## FIXED REGIME DETECTOR CLASS
-#
-# Simple regime detection based on volatility and return thresholds.
+## FIXED REGIME DETECTOR CLASS
 
-# %% [code]
 class RegimeDetector:
     """
     Simple regime detection based on volatility and return thresholds.
@@ -143,12 +176,8 @@ class RegimeDetector:
         }
         return regime_allocations.get(regime, 0.6)
 
-# %% [markdown]
-# ## SECTOR AWARE FACTOR CALCULATOR
-#
-# Sector-aware factor calculator with quality-adjusted P/E.
+## SECTOR AWARE FACTOR CALCULATOR
 
-# %% [code]
 class SectorAwareFactorCalculator:
     """
     Sector-aware factor calculator with quality-adjusted P/E.
@@ -208,15 +237,10 @@ class SectorAwareFactorCalculator:
         
         # Equal weight the components
         data['momentum_score'] = momentum_score / len(momentum_columns)
-        return data 
+        return data
 
-# %% [markdown]
-# ## QVM ENGINE V3F TOP 200 UNIVERSE
-#
-# QVM Engine v3f with Top 200 Universe Strategy.
-# MODIFIED: Universe now selects top 200 stocks by ADTV instead of hard thresholds.
+## QVM ENGINE V3F TOP 200 UNIVERSE
 
-# %% [code]
 class QVMEngineV3fTop200Universe:
     """
     QVM Engine v3f with Top 200 Universe Strategy.
@@ -375,7 +399,7 @@ class QVMEngineV3fTop200Universe:
         universe_df = pd.read_sql(universe_query, self.engine, 
                                  params={'analysis_date': analysis_date, 'lookback_days': lookback_days, 'top_n_stocks': top_n_stocks})
         
-        return universe_df['ticker'].tolist() 
+        return universe_df['ticker'].tolist()
 
     def _detect_current_regime(self, analysis_date: pd.Timestamp) -> str:
         """Detect current market regime."""
@@ -638,14 +662,10 @@ class QVMEngineV3fTop200Universe:
         print(f"   - Total Net Return: {(1 + net_returns).prod() - 1:.2%}")
         print(f"   - Total Cost Drag: {(gross_returns.sum() - net_returns.sum()):.2%}")
         
-        return net_returns 
+        return net_returns
 
-# %% [markdown]
-# ## DATA LOADING FUNCTION
-#
-# Loads all necessary data (prices, fundamentals, sectors) for the specified backtest period.
+## DATA LOADING FUNCTION
 
-# %% [code]
 def load_all_data_for_backtest(config: dict, db_engine):
     """
     Loads all necessary data (prices, fundamentals, sectors) for the
@@ -773,12 +793,8 @@ def load_all_data_for_backtest(config: dict, db_engine):
     print("   ✅ Data preparation complete.")
     return price_data, fundamental_data, daily_returns_matrix, benchmark_returns
 
-# %% [markdown]
-# ## PERFORMANCE ANALYSIS FUNCTIONS
-#
-# Comprehensive performance analysis and visualization functions.
+## PERFORMANCE ANALYSIS FUNCTIONS
 
-# %% [code]
 def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:
     """Calculates comprehensive performance metrics with corrected benchmark alignment."""
     # Align benchmark
@@ -812,7 +828,6 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
         'Beta': beta
     }
 
-# %% [code]
 def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_returns: pd.Series, diagnostics: pd.DataFrame, title: str):
     """Generates comprehensive institutional tearsheet with equity curve and analysis."""
     
@@ -896,135 +911,131 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
 
-# %% [markdown]
-# ## MAIN EXECUTION
-#
-# Execute the complete QVM Engine v3f backtest with performance analysis.
+## MAIN EXECUTION
 
-# %% [code]
-#!/usr/bin/env python3
-"""
-QVM Engine v3h Fixed Regime - CORRECTED MAIN EXECUTION
+if __name__ == "__main__":
+    """
+    QVM Engine v3h Fixed Regime - CORRECTED MAIN EXECUTION
 
-This file contains the main execution code for the corrected QVM Engine v3h
-with proper regime detection thresholds.
-"""
+    This file contains the main execution code for the corrected QVM Engine v3h
+    with proper regime detection thresholds.
+    """
 
-# Execute the data loading
-try:
-    price_data_raw, fundamental_data_raw, daily_returns_matrix, benchmark_returns = load_all_data_for_backtest(QVM_CONFIG, engine)
-    print("\n✅ All data successfully loaded and prepared for the backtest.")
-    print(f"   - Price Data Shape: {price_data_raw.shape}")
-    print(f"   - Fundamental Data Shape: {fundamental_data_raw.shape}")
-    print(f"   - Returns Matrix Shape: {daily_returns_matrix.shape}")
-    print(f"   - Benchmark Returns: {len(benchmark_returns)} days")
-    
-    # --- Instantiate and Run the QVM Engine v3h Fixed Regime ---
-    print("\n" + "="*80)
-    print("🚀 QVM ENGINE V3H: FIXED REGIME (CORRECTED)")
-    print("="*80)
-    
-    qvm_engine = QVMEngineV3fTop200Universe(
-        config=QVM_CONFIG,
-        price_data=price_data_raw,
-        fundamental_data=fundamental_data_raw,
-        returns_matrix=daily_returns_matrix,
-        benchmark_returns=benchmark_returns,
-        db_engine=engine
-    )
-    
-    qvm_net_returns, qvm_diagnostics = qvm_engine.run_backtest()
-    
-    print(f"\n🔍 DEBUG: After backtest")
-    print(f"   - qvm_net_returns shape: {qvm_net_returns.shape}")
-    print(f"   - qvm_net_returns date range: {qvm_net_returns.index.min()} to {qvm_net_returns.index.max()}")
-    print(f"   - benchmark_returns shape: {benchmark_returns.shape}")
-    print(f"   - benchmark_returns date range: {benchmark_returns.index.min()} to {benchmark_returns.index.max()}")
-    print(f"   - Non-zero returns count: {(qvm_net_returns != 0).sum()}")
-    print(f"   - First non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.min() if (qvm_net_returns != 0).any() else 'None'}")
-    print(f"   - Last non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.max() if (qvm_net_returns != 0).any() else 'None'}")
-    
-    # --- Generate Multiple Tearsheets ---
-    print("\n" + "="*80)
-    print("📊 QVM ENGINE V3H: MULTIPLE TEARSHEETS")
-    print("="*80)
-    
-    # 1. Full Period Tearsheet (2016-2025)
-    print("\n📈 Generating Full Period Tearsheet (2016-2025)...")
-    generate_comprehensive_tearsheet(
-        qvm_net_returns,
-        benchmark_returns,
-        qvm_diagnostics,
-        "QVM Engine v3h Fixed Regime (CORRECTED) - Full Period (2016-2025)"
-    )
-    
-    # 2. First Period Tearsheet (2016-2020)
-    print("\n📈 Generating First Period Tearsheet (2016-2020)...")
-    first_period_mask = (qvm_net_returns.index >= '2016-01-01') & (qvm_net_returns.index <= '2020-12-31')
-    first_period_returns = qvm_net_returns[first_period_mask]
-    
-    # Align benchmark data with strategy returns for first period
-    first_period_benchmark = benchmark_returns.reindex(first_period_returns.index).fillna(0)
-    
-    first_period_diagnostics = qvm_diagnostics[
-        (qvm_diagnostics.index >= '2016-01-01') & (qvm_diagnostics.index <= '2020-12-31')
-    ]
-    
-    generate_comprehensive_tearsheet(
-        first_period_returns,
-        first_period_benchmark,
-        first_period_diagnostics,
-        "QVM Engine v3h Fixed Regime (CORRECTED) - First Period (2016-2020)"
-    )
-    
-    # 3. Second Period Tearsheet (2020-2025)
-    print("\n📈 Generating Second Period Tearsheet (2020-2025)...")
-    second_period_mask = (qvm_net_returns.index >= '2020-01-01') & (qvm_net_returns.index <= '2025-12-31')
-    second_period_returns = qvm_net_returns[second_period_mask]
-    
-    # Align benchmark data with strategy returns for second period
-    second_period_benchmark = benchmark_returns.reindex(second_period_returns.index).fillna(0)
-    
-    second_period_diagnostics = qvm_diagnostics[
-        (qvm_diagnostics.index >= '2020-01-01') & (qvm_diagnostics.index <= '2025-12-31')
-    ]
-    
-    generate_comprehensive_tearsheet(
-        second_period_returns,
-        second_period_benchmark,
-        second_period_diagnostics,
-        "QVM Engine v3h Fixed Regime (CORRECTED) - Second Period (2020-2025)"
-    )
-    
-    # --- Additional Analysis ---
-    print("\n" + "="*80)
-    print("🔍 ADDITIONAL ANALYSIS")
-    print("="*80)
-    
-    # Regime Analysis
-    if not qvm_diagnostics.empty and 'regime' in qvm_diagnostics.columns:
-        print("\n📈 Regime Analysis:")
-        regime_summary = qvm_diagnostics['regime'].value_counts()
-        for regime, count in regime_summary.items():
-            percentage = (count / len(qvm_diagnostics)) * 100
-            print(f"   - {regime}: {count} times ({percentage:.2f}%)")
-    
-    # Factor Configuration
-    print("\n📊 Factor Configuration:")
-    print(f"   - ROAA Weight: {QVM_CONFIG['factors']['roaa_weight']}")
-    print(f"   - P/E Weight: {QVM_CONFIG['factors']['pe_weight']}")
-    print(f"   - Momentum Weight: {QVM_CONFIG['factors']['momentum_weight']}")
-    print(f"   - Momentum Horizons: {QVM_CONFIG['factors']['momentum_horizons']}")
-    
-    # Universe Statistics
-    if not qvm_diagnostics.empty:
-        print(f"\n🌐 Universe Statistics:")
-        print(f"   - Average Universe Size: {qvm_diagnostics['universe_size'].mean():.0f} stocks")
-        print(f"   - Average Portfolio Size: {qvm_diagnostics['portfolio_size'].mean():.0f} stocks")
-        print(f"   - Average Turnover: {qvm_diagnostics['turnover'].mean():.2%}")
-    
-    print("\n✅ QVM Engine v3h Fixed Regime (CORRECTED) with comprehensive performance analysis complete!")
-    
-except Exception as e:
-    print(f"❌ An error occurred during execution: {e}")
-    raise 
+    # Execute the data loading
+    try:
+        price_data_raw, fundamental_data_raw, daily_returns_matrix, benchmark_returns = load_all_data_for_backtest(QVM_CONFIG, engine)
+        print("\n✅ All data successfully loaded and prepared for the backtest.")
+        print(f"   - Price Data Shape: {price_data_raw.shape}")
+        print(f"   - Fundamental Data Shape: {fundamental_data_raw.shape}")
+        print(f"   - Returns Matrix Shape: {daily_returns_matrix.shape}")
+        print(f"   - Benchmark Returns: {len(benchmark_returns)} days")
+        
+        # --- Instantiate and Run the QVM Engine v3h Fixed Regime ---
+        print("\n" + "="*80)
+        print("🚀 QVM ENGINE V3H: FIXED REGIME (CORRECTED)")
+        print("="*80)
+        
+        qvm_engine = QVMEngineV3fTop200Universe(
+            config=QVM_CONFIG,
+            price_data=price_data_raw,
+            fundamental_data=fundamental_data_raw,
+            returns_matrix=daily_returns_matrix,
+            benchmark_returns=benchmark_returns,
+            db_engine=engine
+        )
+        
+        qvm_net_returns, qvm_diagnostics = qvm_engine.run_backtest()
+        
+        print(f"\n🔍 DEBUG: After backtest")
+        print(f"   - qvm_net_returns shape: {qvm_net_returns.shape}")
+        print(f"   - qvm_net_returns date range: {qvm_net_returns.index.min()} to {qvm_net_returns.index.max()}")
+        print(f"   - benchmark_returns shape: {benchmark_returns.shape}")
+        print(f"   - benchmark_returns date range: {benchmark_returns.index.min()} to {benchmark_returns.index.max()}")
+        print(f"   - Non-zero returns count: {(qvm_net_returns != 0).sum()}")
+        print(f"   - First non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.min() if (qvm_net_returns != 0).any() else 'None'}")
+        print(f"   - Last non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.max() if (qvm_net_returns != 0).any() else 'None'}")
+        
+        # --- Generate Multiple Tearsheets ---
+        print("\n" + "="*80)
+        print("📊 QVM ENGINE V3H: MULTIPLE TEARSHEETS")
+        print("="*80)
+        
+        # 1. Full Period Tearsheet (2016-2025)
+        print("\n📈 Generating Full Period Tearsheet (2016-2025)...")
+        generate_comprehensive_tearsheet(
+            qvm_net_returns,
+            benchmark_returns,
+            qvm_diagnostics,
+            "QVM Engine v3h Fixed Regime (CORRECTED) - Full Period (2016-2025)"
+        )
+        
+        # 2. First Period Tearsheet (2016-2020)
+        print("\n📈 Generating First Period Tearsheet (2016-2020)...")
+        first_period_mask = (qvm_net_returns.index >= '2016-01-01') & (qvm_net_returns.index <= '2020-12-31')
+        first_period_returns = qvm_net_returns[first_period_mask]
+        
+        # Align benchmark data with strategy returns for first period
+        first_period_benchmark = benchmark_returns.reindex(first_period_returns.index).fillna(0)
+        
+        first_period_diagnostics = qvm_diagnostics[
+            (qvm_diagnostics.index >= '2016-01-01') & (qvm_diagnostics.index <= '2020-12-31')
+        ]
+        
+        generate_comprehensive_tearsheet(
+            first_period_returns,
+            first_period_benchmark,
+            first_period_diagnostics,
+            "QVM Engine v3h Fixed Regime (CORRECTED) - First Period (2016-2020)"
+        )
+        
+        # 3. Second Period Tearsheet (2020-2025)
+        print("\n📈 Generating Second Period Tearsheet (2020-2025)...")
+        second_period_mask = (qvm_net_returns.index >= '2020-01-01') & (qvm_net_returns.index <= '2025-12-31')
+        second_period_returns = qvm_net_returns[second_period_mask]
+        
+        # Align benchmark data with strategy returns for second period
+        second_period_benchmark = benchmark_returns.reindex(second_period_returns.index).fillna(0)
+        
+        second_period_diagnostics = qvm_diagnostics[
+            (qvm_diagnostics.index >= '2020-01-01') & (qvm_diagnostics.index <= '2025-12-31')
+        ]
+        
+        generate_comprehensive_tearsheet(
+            second_period_returns,
+            second_period_benchmark,
+            second_period_diagnostics,
+            "QVM Engine v3h Fixed Regime (CORRECTED) - Second Period (2020-2025)"
+        )
+        
+        # --- Additional Analysis ---
+        print("\n" + "="*80)
+        print("🔍 ADDITIONAL ANALYSIS")
+        print("="*80)
+        
+        # Regime Analysis
+        if not qvm_diagnostics.empty and 'regime' in qvm_diagnostics.columns:
+            print("\n📈 Regime Analysis:")
+            regime_summary = qvm_diagnostics['regime'].value_counts()
+            for regime, count in regime_summary.items():
+                percentage = (count / len(qvm_diagnostics)) * 100
+                print(f"   - {regime}: {count} times ({percentage:.2f}%)")
+        
+        # Factor Configuration
+        print("\n📊 Factor Configuration:")
+        print(f"   - ROAA Weight: {QVM_CONFIG['factors']['roaa_weight']}")
+        print(f"   - P/E Weight: {QVM_CONFIG['factors']['pe_weight']}")
+        print(f"   - Momentum Weight: {QVM_CONFIG['factors']['momentum_weight']}")
+        print(f"   - Momentum Horizons: {QVM_CONFIG['factors']['momentum_horizons']}")
+        
+        # Universe Statistics
+        if not qvm_diagnostics.empty:
+            print(f"\n🌐 Universe Statistics:")
+            print(f"   - Average Universe Size: {qvm_diagnostics['universe_size'].mean():.0f} stocks")
+            print(f"   - Average Portfolio Size: {qvm_diagnostics['portfolio_size'].mean():.0f} stocks")
+            print(f"   - Average Turnover: {qvm_diagnostics['turnover'].mean():.2%}")
+        
+        print("\n✅ QVM Engine v3h Fixed Regime (CORRECTED) with comprehensive performance analysis complete!")
+        
+    except Exception as e:
+        print(f"❌ An error occurred during execution: {e}")
+        raise 
