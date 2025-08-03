@@ -109,6 +109,60 @@ def t_test_one_sample(data, mu=0):
     return t_stat, p_value
 
 # %% [markdown]
+# # DATABASE SCHEMA CHECK
+
+# %%
+# Check what columns are available in the database
+print("Checking database schema for required columns...")
+print("=" * 60)
+
+try:
+    # Check columns in vcsc_daily_data_complete table
+    schema_query = "DESCRIBE vcsc_daily_data_complete"
+    schema_result = pd.read_sql(schema_query, engine.engine)
+    
+    print(f"Available columns in vcsc_daily_data_complete table:")
+    print(f"Total columns: {len(schema_result)}")
+    
+    # Check for required columns for F-Score calculation
+    required_columns = {
+        'non_financial': ['roa', 'cfo', 'total_assets', 'total_equity', 'current_assets', 
+                         'current_liabilities', 'gross_profit', 'revenue', 'total_shares'],
+        'banking': ['roa', 'nim', 'total_assets', 'total_equity', 'net_interest_income',
+                   'total_interest_expense', 'non_performing_loans', 'total_loans'],
+        'securities': ['roa', 'brokerage_income', 'total_revenue', 'total_assets', 'trading_volume']
+    }
+    
+    available_columns = schema_result['Field'].tolist()
+    
+    for sector, columns in required_columns.items():
+        print(f"\n{sector.upper().replace('_', ' ')} SECTOR REQUIRED COLUMNS:")
+        missing_columns = []
+        available_count = 0
+        
+        for col in columns:
+            if col in available_columns:
+                print(f"  ✅ {col}")
+                available_count += 1
+            else:
+                print(f"  ❌ {col} - MISSING")
+                missing_columns.append(col)
+        
+        print(f"  Available: {available_count}/{len(columns)} columns")
+        if missing_columns:
+            print(f"  Missing columns: {missing_columns}")
+    
+    # Show sample of available columns
+    print(f"\nSample of available columns:")
+    for i, col in enumerate(available_columns[:20]):
+        print(f"  {i+1:2d}. {col}")
+    if len(available_columns) > 20:
+        print(f"  ... and {len(available_columns) - 20} more columns")
+        
+except Exception as e:
+    print(f"Error checking database schema: {e}")
+
+# %% [markdown]
 # # DATABASE CONNECTION AND ENGINE SETUP
 
 # %%
@@ -131,15 +185,104 @@ analysis_dates = pd.date_range(start=start_date, end=end_date, freq='M')
 print(f"Analysis Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 print(f"Number of analysis dates: {len(analysis_dates)}")
 
-# Define sector-specific test tickers
-NON_FINANCIAL_TICKERS = ['VIC', 'VHM', 'HPG', 'GAS', 'VJC', 'MSN', 'PLX', 'POW', 'FPT', 'MWG']
-BANKING_TICKERS = ['VCB', 'TCB', 'BID', 'CTG', 'VPB', 'ACB', 'MBB', 'STB', 'SHB', 'EIB']
-SECURITIES_TICKERS = ['SSI', 'VCI', 'VND', 'HCM', 'VIX', 'FTS', 'ORS', 'BVS', 'CTS', 'APG']
+# Define comprehensive sector-specific tickers from the codebase
+BANKING_TICKERS = [
+    'VCB', 'TCB', 'BID', 'CTG', 'VPB', 'TPB', 'MBB', 'STB', 'HDB', 'ACB', 
+    'SHB', 'EIB', 'MSB', 'OCB', 'LPB', 'KLB', 'NVB', 'PGB', 'VIB', 'NAB', 'BAB'
+]
 
-print(f"Testing with sector-specific tickers:")
-print(f"  Non-Financial: {len(NON_FINANCIAL_TICKERS)} tickers")
+SECURITIES_TICKERS = [
+    'SSI', 'VCI', 'VND', 'HCM', 'BSI', 'SHS', 'MBS', 'FTS', 'VIG', 'TVS',
+    'AGR', 'VDS', 'PSI', 'APS', 'IVS', 'BVS', 'CTS', 'DSC', 'EVS', 'ORS',
+    'TCI', 'VFS', 'WSS', 'ASP', 'VIX', 'CSI'
+]
+
+# Non-Financial tickers (representative sample from major sectors)
+NON_FINANCIAL_TICKERS = [
+    # Real Estate
+    'VIC', 'VHM', 'NLG', 'DXG', 'KDH', 'NVL', 'PDR', 'CEO', 'FLC', 'HQC',
+    # Food & Beverage
+    'VNM', 'SAB', 'MSN', 'MCH', 'KDC', 'BHN', 'TAC', 'VCF', 'VAF', 'HAG',
+    # Construction Materials
+    'HPG', 'HSG', 'NKG', 'GVR', 'TMS', 'VGS', 'VCS', 'VCA', 'VCM', 'VCI',
+    # Technology
+    'FPT', 'CMG', 'ELC', 'VNG', 'VGI', 'VHC', 'VHT', 'VIC', 'VJC', 'VKD',
+    # Retail
+    'MWG', 'PNJ', 'DGW', 'FPT', 'VJC', 'VKD', 'VKG', 'VKH', 'VKI', 'VKJ',
+    # Utilities
+    'POW', 'GAS', 'REE', 'DPM', 'DGC', 'TCH', 'VRE', 'VJC', 'HVN', 'ACV'
+]
+
+print(f"Testing with comprehensive sector-specific tickers:")
 print(f"  Banking: {len(BANKING_TICKERS)} tickers")
 print(f"  Securities: {len(SECURITIES_TICKERS)} tickers")
+print(f"  Non-Financial: {len(NON_FINANCIAL_TICKERS)} tickers")
+
+# Function to get tickers by sector from database (alternative approach)
+def get_tickers_by_sector_from_db(engine, sector_name):
+    """
+    Get tickers for a specific sector from the database.
+    
+    Parameters:
+    - engine: QVMEngineV2Enhanced instance
+    - sector_name: 'Banking', 'Securities', or 'Non-Financial'
+    
+    Returns:
+    - list: ticker symbols for the sector
+    """
+    try:
+        if sector_name == 'Banking':
+            query = """
+            SELECT ticker FROM master_info 
+            WHERE sector = 'Banks' AND ticker IS NOT NULL
+            """
+        elif sector_name == 'Securities':
+            query = """
+            SELECT ticker FROM master_info 
+            WHERE sector = 'Securities' AND ticker IS NOT NULL
+            """
+        else:  # Non-Financial
+            query = """
+            SELECT ticker FROM master_info 
+            WHERE sector NOT IN ('Banks', 'Securities', 'Insurance', 'Other Financial')
+            AND ticker IS NOT NULL
+            """
+        
+        result = pd.read_sql(query, engine.engine)
+        return result['ticker'].tolist()
+        
+    except Exception as e:
+        print(f"Failed to get {sector_name} tickers from database: {e}")
+        # Return hardcoded lists as fallback
+        if sector_name == 'Banking':
+            return BANKING_TICKERS
+        elif sector_name == 'Securities':
+            return SECURITIES_TICKERS
+        else:
+            return NON_FINANCIAL_TICKERS
+
+# Try to get tickers from database first, fallback to hardcoded lists
+print("\nAttempting to get sector tickers from database...")
+try:
+    db_banking_tickers = get_tickers_by_sector_from_db(engine, 'Banking')
+    db_securities_tickers = get_tickers_by_sector_from_db(engine, 'Securities')
+    db_non_financial_tickers = get_tickers_by_sector_from_db(engine, 'Non-Financial')
+    
+    if db_banking_tickers:
+        BANKING_TICKERS = db_banking_tickers
+        print(f"✅ Using {len(BANKING_TICKERS)} banking tickers from database")
+    if db_securities_tickers:
+        SECURITIES_TICKERS = db_securities_tickers
+        print(f"✅ Using {len(SECURITIES_TICKERS)} securities tickers from database")
+    if db_non_financial_tickers:
+        NON_FINANCIAL_TICKERS = db_non_financial_tickers
+        print(f"✅ Using {len(NON_FINANCIAL_TICKERS)} non-financial tickers from database")
+        
+except Exception as e:
+    print(f"⚠️ Using hardcoded ticker lists: {e}")
+    print(f"  Banking: {len(BANKING_TICKERS)} tickers")
+    print(f"  Securities: {len(SECURITIES_TICKERS)} tickers")
+    print(f"  Non-Financial: {len(NON_FINANCIAL_TICKERS)} tickers")
 
 # %% [markdown]
 # # PIOTROSKI F-SCORE FACTOR CALCULATION
@@ -802,6 +945,20 @@ for sector in sectors:
 # # VISUALIZATION OF RESULTS BY SECTOR
 
 # %%
+# Debug: Check if we have data to plot
+print("DEBUG: Checking data availability for visualization...")
+print("=" * 60)
+
+for sector in sectors:
+    print(f"\n{sector.upper().replace('_', ' ')} SECTOR:")
+    print(f"  Historical F-Score dates: {len(historical_f_score[sector])}")
+    print(f"  Historical Forward Returns dates: {len(historical_forward_returns[sector])}")
+    
+    for period in [1, 3, 6, 12]:
+        ic_count = len(ic_results[sector][period]) if ic_results[sector][period] else 0
+        returns_count = len(factor_returns_results[sector][period]['returns']) if period in factor_returns_results[sector] else 0
+        print(f"    {period}M Forward: IC data points = {ic_count}, Returns data points = {returns_count}")
+
 # Set up plotting style
 plt.style.use('seaborn-v0_8')
 fig, axes = plt.subplots(3, 2, figsize=(15, 18))
@@ -816,19 +973,28 @@ sector_names = {
 for i, sector in enumerate(sectors):
     # Plot 1: IC Distribution
     ax1 = axes[i, 0]
+    has_ic_data = False
     for period in [1, 3, 6, 12]:
-        if ic_results[sector][period]:
+        if ic_results[sector][period] and len(ic_results[sector][period]) > 0:
             ax1.hist(ic_results[sector][period], alpha=0.6, label=f'{period}M', bins=15)
-    ax1.axvline(0, color='red', linestyle='--', alpha=0.7)
-    ax1.set_xlabel('Information Coefficient')
-    ax1.set_ylabel('Frequency')
-    ax1.set_title(f'{sector_names[sector]} - IC Distribution')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
+            has_ic_data = True
+    
+    if has_ic_data:
+        ax1.axvline(0, color='red', linestyle='--', alpha=0.7)
+        ax1.set_xlabel('Information Coefficient')
+        ax1.set_ylabel('Frequency')
+        ax1.set_title(f'{sector_names[sector]} - IC Distribution')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+    else:
+        ax1.text(0.5, 0.5, f'No IC data available\nfor {sector_names[sector]}', 
+                ha='center', va='center', transform=ax1.transAxes, fontsize=12)
+        ax1.set_title(f'{sector_names[sector]} - IC Distribution (No Data)')
     
     # Plot 2: Factor Returns Summary
     ax2 = axes[i, 1]
-    periods = [p for p in [1, 3, 6, 12] if p in factor_returns_results[sector]]
+    periods = [p for p in [1, 3, 6, 12] if p in factor_returns_results[sector] and factor_returns_results[sector][p]['returns']]
+    
     if periods:
         means = [factor_returns_results[sector][p]['mean_return'] for p in periods]
         stds = [factor_returns_results[sector][p]['std_return'] for p in periods]
@@ -845,9 +1011,49 @@ for i, sector in enumerate(sectors):
         for j, (period, results) in enumerate(factor_returns_results[sector].items()):
             if results['p_value'] < 0.05:
                 ax2.text(j, means[j] + stds[j] + 0.001, '*', ha='center', va='bottom', fontsize=16, color='green')
+    else:
+        ax2.text(0.5, 0.5, f'No factor returns data\navailable for {sector_names[sector]}', 
+                ha='center', va='center', transform=ax2.transAxes, fontsize=12)
+        ax2.set_title(f'{sector_names[sector]} - Factor Returns (No Data)')
 
 plt.tight_layout()
 plt.show()
+
+# %% [markdown]
+# # DATA AVAILABILITY SUMMARY
+
+# %%
+print("=" * 80)
+print("DATA AVAILABILITY SUMMARY FOR VISUALIZATION")
+print("=" * 80)
+
+total_data_points = 0
+for sector in sectors:
+    print(f"\n{sector.upper().replace('_', ' ')} SECTOR:")
+    sector_data_points = 0
+    
+    for period in [1, 3, 6, 12]:
+        ic_count = len(ic_results[sector][period]) if ic_results[sector][period] else 0
+        returns_count = len(factor_returns_results[sector][period]['returns']) if period in factor_returns_results[sector] else 0
+        sector_data_points += ic_count + returns_count
+        
+        print(f"  {period}M Forward Period:")
+        print(f"    IC data points: {ic_count}")
+        print(f"    Returns data points: {returns_count}")
+    
+    print(f"  Total data points: {sector_data_points}")
+    total_data_points += sector_data_points
+
+print(f"\nOVERALL SUMMARY:")
+print(f"  Total data points across all sectors: {total_data_points}")
+if total_data_points == 0:
+    print("  ⚠️  NO DATA AVAILABLE - This is likely due to:")
+    print("     - Database schema issues (missing columns like 'roa', 'cfo', etc.)")
+    print("     - No financial data available for the specified dates")
+    print("     - Database connection issues")
+    print("  🔧 RECOMMENDATION: Check database schema and data availability")
+else:
+    print("  ✅ Data available for visualization")
 
 # %% [markdown]
 # # SUMMARY AND CONCLUSIONS BY SECTOR

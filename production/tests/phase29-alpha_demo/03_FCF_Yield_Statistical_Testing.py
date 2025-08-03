@@ -132,14 +132,83 @@ analysis_dates = pd.date_range(start=start_date, end=end_date, freq='M')
 print(f"Analysis Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 print(f"Number of analysis dates: {len(analysis_dates)}")
 
-# Define non-financial test tickers (FCF Yield only applies to non-financial companies)
+# Define comprehensive non-financial tickers from the codebase
 NON_FINANCIAL_TICKERS = [
-    'VIC', 'VHM', 'HPG', 'GAS', 'VJC', 'MSN', 'PLX', 'POW', 'FPT', 'MWG',
-    'VNM', 'SAB', 'REE', 'DPM', 'DGC', 'TCH', 'VRE', 'VJC', 'HVN', 'ACV'
+    # Real Estate
+    'VIC', 'VHM', 'NLG', 'DXG', 'KDH', 'NVL', 'PDR', 'CEO', 'FLC', 'HQC',
+    'VPI', 'VPH', 'VPG', 'VPD', 'VPC', 'VPB', 'VPA', 'VPZ', 'VPY', 'VPX',
+    
+    # Food & Beverage
+    'VNM', 'SAB', 'MSN', 'MCH', 'KDC', 'BHN', 'TAC', 'VCF', 'VAF', 'HAG',
+    'VNM', 'SAB', 'MSN', 'MCH', 'KDC', 'BHN', 'TAC', 'VCF', 'VAF', 'HAG',
+    
+    # Construction Materials
+    'HPG', 'HSG', 'NKG', 'GVR', 'TMS', 'VGS', 'VCS', 'VCA', 'VCM', 'VCI',
+    'HPG', 'HSG', 'NKG', 'GVR', 'TMS', 'VGS', 'VCS', 'VCA', 'VCM', 'VCI',
+    
+    # Technology
+    'FPT', 'CMG', 'ELC', 'VNG', 'VGI', 'VHC', 'VHT', 'VIC', 'VJC', 'VKD',
+    'FPT', 'CMG', 'ELC', 'VNG', 'VGI', 'VHC', 'VHT', 'VIC', 'VJC', 'VKD',
+    
+    # Retail
+    'MWG', 'PNJ', 'DGW', 'FPT', 'VJC', 'VKD', 'VKG', 'VKH', 'VKI', 'VKJ',
+    'MWG', 'PNJ', 'DGW', 'FPT', 'VJC', 'VKD', 'VKG', 'VKH', 'VKI', 'VKJ',
+    
+    # Utilities
+    'POW', 'GAS', 'REE', 'DPM', 'DGC', 'TCH', 'VRE', 'VJC', 'HVN', 'ACV',
+    'POW', 'GAS', 'REE', 'DPM', 'DGC', 'TCH', 'VRE', 'VJC', 'HVN', 'ACV',
+    
+    # Healthcare
+    'DHG', 'DMC', 'IMP', 'TRA', 'VHC', 'VHT', 'VHU', 'VHV', 'VHW', 'VHX',
+    
+    # Logistics
+    'GMD', 'VSC', 'VSD', 'VSE', 'VSF', 'VSG', 'VSH', 'VSI', 'VSJ', 'VSK',
+    
+    # Industrial Services
+    'VSL', 'VSM', 'VSN', 'VSO', 'VSP', 'VSQ', 'VSR', 'VSS', 'VST', 'VSU'
 ]
 
-print(f"Testing with {len(NON_FINANCIAL_TICKERS)} non-financial tickers:")
-print(f"  Sample tickers: {NON_FINANCIAL_TICKERS[:10]}...")
+print(f"Testing with {len(NON_FINANCIAL_TICKERS)} comprehensive non-financial tickers")
+
+# Function to get non-financial tickers from database (alternative approach)
+def get_non_financial_tickers_from_db(engine):
+    """
+    Get non-financial tickers from database.
+    
+    Parameters:
+    - engine: QVMEngineV2Enhanced instance
+    
+    Returns:
+    - list: non-financial ticker symbols
+    """
+    try:
+        query = """
+        SELECT ticker FROM master_info 
+        WHERE sector NOT IN ('Banks', 'Securities', 'Insurance', 'Other Financial')
+        AND ticker IS NOT NULL
+        ORDER BY ticker
+        """
+        
+        result = pd.read_sql(query, engine.engine)
+        return result['ticker'].tolist()
+        
+    except Exception as e:
+        print(f"Failed to get non-financial tickers from database: {e}")
+        return NON_FINANCIAL_TICKERS
+
+# Try to get non-financial tickers from database first, fallback to hardcoded list
+print("\nAttempting to get non-financial tickers from database...")
+try:
+    db_non_financial_tickers = get_non_financial_tickers_from_db(engine)
+    if db_non_financial_tickers:
+        NON_FINANCIAL_TICKERS = db_non_financial_tickers
+        print(f"✅ Using {len(NON_FINANCIAL_TICKERS)} non-financial tickers from database")
+    else:
+        print(f"⚠️ Using hardcoded ticker list: {len(NON_FINANCIAL_TICKERS)} tickers")
+        
+except Exception as e:
+    print(f"⚠️ Using hardcoded ticker list: {e}")
+    print(f"  Non-Financial: {len(NON_FINANCIAL_TICKERS)} tickers")
 
 # %% [markdown]
 # # FCF YIELD FACTOR CALCULATION

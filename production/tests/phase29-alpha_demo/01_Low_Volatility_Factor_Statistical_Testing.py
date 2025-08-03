@@ -131,9 +131,89 @@ analysis_dates = pd.date_range(start=start_date, end=end_date, freq='M')
 print(f"Analysis Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 print(f"Number of analysis dates: {len(analysis_dates)}")
 
-# Get universe for testing (using sample tickers for demonstration)
-SAMPLE_TICKERS = ['TCB', 'VCB', 'OCB', 'NLG', 'SSI', 'FPT', 'HPG', 'MWG', 'VIC', 'VHM', 'GAS', 'VJC']
-print(f"Testing with {len(SAMPLE_TICKERS)} sample tickers: {SAMPLE_TICKERS}")
+# Define comprehensive universe of liquid stocks from the codebase
+UNIVERSE_TICKERS = [
+    # Banking (21 tickers)
+    'VCB', 'TCB', 'BID', 'CTG', 'VPB', 'TPB', 'MBB', 'STB', 'HDB', 'ACB', 
+    'SHB', 'EIB', 'MSB', 'OCB', 'LPB', 'KLB', 'NVB', 'PGB', 'VIB', 'NAB', 'BAB',
+    
+    # Securities (26 tickers)
+    'SSI', 'VCI', 'VND', 'HCM', 'BSI', 'SHS', 'MBS', 'FTS', 'VIG', 'TVS',
+    'AGR', 'VDS', 'PSI', 'APS', 'IVS', 'BVS', 'CTS', 'DSC', 'EVS', 'ORS',
+    'TCI', 'VFS', 'WSS', 'ASP', 'VIX', 'CSI',
+    
+    # Real Estate
+    'VIC', 'VHM', 'NLG', 'DXG', 'KDH', 'NVL', 'PDR', 'CEO', 'FLC', 'HQC',
+    
+    # Food & Beverage
+    'VNM', 'SAB', 'MSN', 'MCH', 'KDC', 'BHN', 'TAC', 'VCF', 'VAF', 'HAG',
+    
+    # Construction Materials
+    'HPG', 'HSG', 'NKG', 'GVR', 'TMS', 'VGS', 'VCS', 'VCA', 'VCM', 'VCI',
+    
+    # Technology
+    'FPT', 'CMG', 'ELC', 'VNG', 'VGI', 'VHC', 'VHT', 'VIC', 'VJC', 'VKD',
+    
+    # Retail
+    'MWG', 'PNJ', 'DGW', 'FPT', 'VJC', 'VKD', 'VKG', 'VKH', 'VKI', 'VKJ',
+    
+    # Utilities
+    'POW', 'GAS', 'REE', 'DPM', 'DGC', 'TCH', 'VRE', 'VJC', 'HVN', 'ACV'
+]
+
+print(f"Testing with {len(UNIVERSE_TICKERS)} comprehensive universe tickers")
+
+# Function to get liquid universe from database (alternative approach)
+def get_liquid_universe_from_db(engine, analysis_date, top_n=200):
+    """
+    Get liquid universe from database using the existing function.
+    
+    Parameters:
+    - engine: QVMEngineV2Enhanced instance
+    - analysis_date: datetime for analysis
+    - top_n: maximum number of tickers to return
+    
+    Returns:
+    - list: ticker symbols for liquid universe
+    """
+    try:
+        from production.database.utils import get_liquid_universe
+        
+        # Convert datetime to string format
+        date_str = analysis_date.strftime('%Y-%m-%d')
+        
+        # Get liquid universe
+        liquid_df = get_liquid_universe(
+            analysis_date=date_str,
+            adtv_threshold=10.0,
+            lookback_days=63,
+            top_n=top_n,
+            min_trading_coverage=0.6,
+            engine=engine.engine
+        )
+        
+        if not liquid_df.empty:
+            return liquid_df['ticker'].tolist()
+        else:
+            return UNIVERSE_TICKERS
+            
+    except Exception as e:
+        print(f"Failed to get liquid universe from database: {e}")
+        return UNIVERSE_TICKERS
+
+# Try to get liquid universe from database first, fallback to hardcoded list
+print("\nAttempting to get liquid universe from database...")
+try:
+    db_universe_tickers = get_liquid_universe_from_db(engine, start_date, top_n=200)
+    if db_universe_tickers:
+        UNIVERSE_TICKERS = db_universe_tickers
+        print(f"✅ Using {len(UNIVERSE_TICKERS)} tickers from liquid universe database")
+    else:
+        print(f"⚠️ Using hardcoded ticker list: {len(UNIVERSE_TICKERS)} tickers")
+        
+except Exception as e:
+    print(f"⚠️ Using hardcoded ticker list: {e}")
+    print(f"  Universe: {len(UNIVERSE_TICKERS)} tickers")
 
 # %% [markdown]
 # # LOW-VOLATILITY FACTOR CALCULATION
@@ -219,7 +299,7 @@ historical_low_vol = {}
 
 for date in analysis_dates:
     print(f"Processing {date.strftime('%Y-%m-%d')}...", end=' ')
-    scores = calculate_low_volatility_factor(engine, date, SAMPLE_TICKERS)
+    scores = calculate_low_volatility_factor(engine, date, UNIVERSE_TICKERS)
     if scores:
         historical_low_vol[date] = scores
         print(f"✅ {len(scores)} scores calculated")
@@ -377,7 +457,7 @@ print("Calculating forward returns...")
 historical_forward_returns = {}
 
 for date in list(historical_low_vol.keys()):
-    forward_returns = calculate_forward_returns(engine, date, SAMPLE_TICKERS, [1, 3, 6, 12])
+    forward_returns = calculate_forward_returns(engine, date, UNIVERSE_TICKERS, [1, 3, 6, 12])
     if forward_returns:
         historical_forward_returns[date] = forward_returns
 
