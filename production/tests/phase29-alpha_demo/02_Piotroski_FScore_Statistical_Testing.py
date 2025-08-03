@@ -109,6 +109,17 @@ def t_test_one_sample(data, mu=0):
     return t_stat, p_value
 
 # %% [markdown]
+# # DATABASE CONNECTION AND ENGINE SETUP
+
+# %%
+# Initialize the QVM engine
+engine = QVMEngineV2Enhanced()
+
+print("✅ QVM Engine v2 Enhanced initialized successfully")
+print(f"   - Engine class: {engine.__class__.__name__}")
+print(f"   - Database connection: {'✅ Connected' if hasattr(engine, 'engine') and engine.engine else '❌ Failed'}")
+
+# %% [markdown]
 # # DATABASE SCHEMA CHECK
 
 # %%
@@ -117,11 +128,19 @@ print("Checking database schema for required columns...")
 print("=" * 60)
 
 try:
+    # Check what tables are available
+    tables_query = "SHOW TABLES LIKE '%intermediary%'"
+    tables_result = pd.read_sql(tables_query, engine.engine)
+    
+    print(f"Available intermediary tables:")
+    for table in tables_result.iloc[:, 0]:
+        print(f"  - {table}")
+    
     # Check columns in vcsc_daily_data_complete table
     schema_query = "DESCRIBE vcsc_daily_data_complete"
     schema_result = pd.read_sql(schema_query, engine.engine)
     
-    print(f"Available columns in vcsc_daily_data_complete table:")
+    print(f"\nAvailable columns in vcsc_daily_data_complete table:")
     print(f"Total columns: {len(schema_result)}")
     
     # Check for required columns for F-Score calculation
@@ -153,25 +172,32 @@ try:
             print(f"  Missing columns: {missing_columns}")
     
     # Show sample of available columns
-    print(f"\nSample of available columns:")
+    print(f"\nSample of available columns in vcsc_daily_data_complete:")
     for i, col in enumerate(available_columns[:20]):
         print(f"  {i+1:2d}. {col}")
     if len(available_columns) > 20:
         print(f"  ... and {len(available_columns) - 20} more columns")
         
+    # Check if intermediary tables exist and have the required data
+    print(f"\nChecking intermediary tables for financial data...")
+    intermediary_tables = ['intermediary_calculations_enhanced', 'intermediary_calculations_banking', 'intermediary_calculations_securities']
+    
+    for table in intermediary_tables:
+        try:
+            check_query = f"SELECT COUNT(*) as count FROM {table} LIMIT 1"
+            check_result = pd.read_sql(check_query, engine.engine)
+            print(f"  ✅ {table}: {check_result.iloc[0]['count']} records available")
+            
+            # Check columns in this table
+            table_schema_query = f"DESCRIBE {table}"
+            table_schema = pd.read_sql(table_schema_query, engine.engine)
+            print(f"    Columns: {len(table_schema)}")
+            
+        except Exception as e:
+            print(f"  ❌ {table}: {str(e)[:50]}...")
+        
 except Exception as e:
     print(f"Error checking database schema: {e}")
-
-# %% [markdown]
-# # DATABASE CONNECTION AND ENGINE SETUP
-
-# %%
-# Initialize the QVM engine
-engine = QVMEngineV2Enhanced()
-
-print("✅ QVM Engine v2 Enhanced initialized successfully")
-print(f"   - Engine class: {engine.__class__.__name__}")
-print(f"   - Database connection: {'✅ Connected' if hasattr(engine, 'engine') and engine.engine else '❌ Failed'}")
 
 # %% [markdown]
 # # UNIVERSE CONSTRUCTION BY SECTOR
@@ -309,25 +335,30 @@ def calculate_f_score_non_financial(engine, analysis_date, universe_tickers):
     try:
         f_scores = {}
         
-        # Get financial data for F-Score calculation
+        # Get financial data from intermediary table
         ticker_str = "', '".join(universe_tickers)
         
-        # Query for financial metrics
+        # Get current year and quarter
+        current_year = analysis_date.year
+        current_quarter = (analysis_date.month - 1) // 3 + 1
+        
+        # Query for current financial metrics from intermediary table
         query = f"""
         SELECT 
             ticker,
-            roa,
-            cfo,
-            total_assets,
-            total_equity,
-            current_assets,
-            current_liabilities,
-            gross_profit,
-            revenue,
-            total_shares
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            NetCFO_TTM,
+            AvgTotalAssets,
+            AvgTotalEquity,
+            AvgCurrentAssets,
+            AvgCurrentLiabilities,
+            GrossProfit_TTM,
+            Revenue_TTM,
+            SharesOutstanding
+        FROM intermediary_calculations_enhanced
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{analysis_date.date()}'
+          AND year = {current_year}
+          AND quarter = {current_quarter}
         """
         
         current_data = pd.read_sql(query, engine.engine)
@@ -336,22 +367,23 @@ def calculate_f_score_non_financial(engine, analysis_date, universe_tickers):
             return f_scores
         
         # Get previous year data for comparisons
-        prev_date = analysis_date - pd.DateOffset(years=1)
+        prev_year = current_year - 1
         prev_query = f"""
         SELECT 
             ticker,
-            roa,
-            cfo,
-            total_assets,
-            total_equity,
-            current_assets,
-            current_liabilities,
-            gross_profit,
-            revenue,
-            total_shares
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            NetCFO_TTM,
+            AvgTotalAssets,
+            AvgTotalEquity,
+            AvgCurrentAssets,
+            AvgCurrentLiabilities,
+            GrossProfit_TTM,
+            Revenue_TTM,
+            SharesOutstanding
+        FROM intermediary_calculations_enhanced
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{prev_date.date()}'
+          AND year = {prev_year}
+          AND quarter = {current_quarter}
         """
         
         prev_data = pd.read_sql(prev_query, engine.engine)
@@ -364,47 +396,53 @@ def calculate_f_score_non_financial(engine, analysis_date, universe_tickers):
             score = 0
             max_score = 9  # 9 tests for non-financial
             
+            # Calculate ROA (Net Profit / Average Total Assets)
+            curr_roa = row['NetProfit_TTM_curr'] / row['AvgTotalAssets_curr'] if row['AvgTotalAssets_curr'] > 0 else 0
+            prev_roa = row['NetProfit_TTM_prev'] / row['AvgTotalAssets_prev'] if row['AvgTotalAssets_prev'] > 0 else 0
+            
             # Test 1: ROA > 0
-            if row['roa_curr'] > 0:
+            if curr_roa > 0:
                 score += 1
             
             # Test 2: CFO > 0
-            if row['cfo_curr'] > 0:
+            if row['NetCFO_TTM_curr'] > 0:
                 score += 1
             
             # Test 3: Change in ROA > 0
-            if row['roa_curr'] > row['roa_prev']:
+            if curr_roa > prev_roa:
                 score += 1
             
             # Test 4: Accruals < CFO (simplified)
-            if row['cfo_curr'] > 0:  # Simplified test
+            if row['NetCFO_TTM_curr'] > 0:  # Simplified test
                 score += 1
             
             # Test 5: Change in Leverage < 0
-            curr_leverage = row['total_assets_curr'] / row['total_equity_curr'] if row['total_equity_curr'] > 0 else 0
-            prev_leverage = row['total_assets_prev'] / row['total_equity_prev'] if row['total_equity_prev'] > 0 else 0
+            curr_leverage = row['AvgTotalAssets_curr'] / row['AvgTotalEquity_curr'] if row['AvgTotalEquity_curr'] > 0 else 0
+            prev_leverage = row['AvgTotalAssets_prev'] / row['AvgTotalEquity_prev'] if row['AvgTotalEquity_prev'] > 0 else 0
             if curr_leverage < prev_leverage:
                 score += 1
             
             # Test 6: Change in Current Ratio > 0
-            curr_ratio = row['current_assets_curr'] / row['current_liabilities_curr'] if row['current_liabilities_curr'] > 0 else 0
-            prev_ratio = row['current_assets_prev'] / row['current_liabilities_prev'] if row['current_liabilities_prev'] > 0 else 0
+            curr_ratio = row['AvgCurrentAssets_curr'] / row['AvgCurrentLiabilities_curr'] if row['AvgCurrentLiabilities_curr'] > 0 else 0
+            prev_ratio = row['AvgCurrentAssets_prev'] / row['AvgCurrentLiabilities_prev'] if row['AvgCurrentLiabilities_prev'] > 0 else 0
             if curr_ratio > prev_ratio:
                 score += 1
             
             # Test 7: No Share Issuance
-            if row['total_shares_curr'] <= row['total_shares_prev']:
+            curr_shares = row['SharesOutstanding_curr'] if pd.notna(row['SharesOutstanding_curr']) else 0
+            prev_shares = row['SharesOutstanding_prev'] if pd.notna(row['SharesOutstanding_prev']) else 0
+            if curr_shares <= prev_shares:
                 score += 1
             
             # Test 8: Change in Gross Margin > 0
-            curr_gm = row['gross_profit_curr'] / row['revenue_curr'] if row['revenue_curr'] > 0 else 0
-            prev_gm = row['gross_profit_prev'] / row['revenue_prev'] if row['revenue_prev'] > 0 else 0
+            curr_gm = row['GrossProfit_TTM_curr'] / row['Revenue_TTM_curr'] if row['Revenue_TTM_curr'] > 0 else 0
+            prev_gm = row['GrossProfit_TTM_prev'] / row['Revenue_TTM_prev'] if row['Revenue_TTM_prev'] > 0 else 0
             if curr_gm > prev_gm:
                 score += 1
             
             # Test 9: Change in Asset Turnover > 0
-            curr_at = row['revenue_curr'] / row['total_assets_curr'] if row['total_assets_curr'] > 0 else 0
-            prev_at = row['revenue_prev'] / row['total_assets_prev'] if row['total_assets_prev'] > 0 else 0
+            curr_at = row['Revenue_TTM_curr'] / row['AvgTotalAssets_curr'] if row['AvgTotalAssets_curr'] > 0 else 0
+            prev_at = row['Revenue_TTM_prev'] / row['AvgTotalAssets_prev'] if row['AvgTotalAssets_prev'] > 0 else 0
             if curr_at > prev_at:
                 score += 1
             
@@ -436,23 +474,26 @@ def calculate_f_score_banking(engine, analysis_date, universe_tickers):
     try:
         f_scores = {}
         
-        # Get banking-specific financial data
+        # Get banking-specific financial data from intermediary table
         ticker_str = "', '".join(universe_tickers)
+        
+        # Get current year and quarter
+        current_year = analysis_date.year
+        current_quarter = (analysis_date.month - 1) // 3 + 1
         
         query = f"""
         SELECT 
             ticker,
-            roa,
-            nim,
-            total_assets,
-            total_equity,
-            net_interest_income,
-            total_interest_expense,
-            non_performing_loans,
-            total_loans
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            AvgTotalAssets,
+            AvgTotalEquity,
+            InterestExpense_TTM,
+            NIM,
+            OperatingProfit_TTM
+        FROM intermediary_calculations_banking
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{analysis_date.date()}'
+          AND year = {current_year}
+          AND quarter = {current_quarter}
         """
         
         current_data = pd.read_sql(query, engine.engine)
@@ -461,21 +502,20 @@ def calculate_f_score_banking(engine, analysis_date, universe_tickers):
             return f_scores
         
         # Get previous year data
-        prev_date = analysis_date - pd.DateOffset(years=1)
+        prev_year = current_year - 1
         prev_query = f"""
         SELECT 
             ticker,
-            roa,
-            nim,
-            total_assets,
-            total_equity,
-            net_interest_income,
-            total_interest_expense,
-            non_performing_loans,
-            total_loans
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            AvgTotalAssets,
+            AvgTotalEquity,
+            InterestExpense_TTM,
+            NIM,
+            OperatingProfit_TTM
+        FROM intermediary_calculations_banking
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{prev_date.date()}'
+          AND year = {prev_year}
+          AND quarter = {current_quarter}
         """
         
         prev_data = pd.read_sql(prev_query, engine.engine)
@@ -488,32 +528,36 @@ def calculate_f_score_banking(engine, analysis_date, universe_tickers):
             score = 0
             max_score = 6  # 6 tests for banking
             
+            # Calculate ROA (Net Profit / Average Total Assets)
+            curr_roa = row['NetProfit_TTM_curr'] / row['AvgTotalAssets_curr'] if row['AvgTotalAssets_curr'] > 0 else 0
+            prev_roa = row['NetProfit_TTM_prev'] / row['AvgTotalAssets_prev'] if row['AvgTotalAssets_prev'] > 0 else 0
+            
             # Test 1: ROA > 0
-            if row['roa_curr'] > 0:
+            if curr_roa > 0:
                 score += 1
             
             # Test 2: NIM > 0
-            if row['nim_curr'] > 0:
+            if row['NIM_curr'] > 0:
                 score += 1
             
             # Test 3: Change in ROA > 0
-            if row['roa_curr'] > row['roa_prev']:
+            if curr_roa > prev_roa:
                 score += 1
             
             # Test 4: Change in Leverage < 0
-            curr_leverage = row['total_assets_curr'] / row['total_equity_curr'] if row['total_equity_curr'] > 0 else 0
-            prev_leverage = row['total_assets_prev'] / row['total_equity_prev'] if row['total_equity_prev'] > 0 else 0
+            curr_leverage = row['AvgTotalAssets_curr'] / row['AvgTotalEquity_curr'] if row['AvgTotalEquity_curr'] > 0 else 0
+            prev_leverage = row['AvgTotalAssets_prev'] / row['AvgTotalEquity_prev'] if row['AvgTotalEquity_prev'] > 0 else 0
             if curr_leverage < prev_leverage:
                 score += 1
             
             # Test 5: Change in Efficiency Ratio > 0 (simplified)
-            if row['total_interest_expense_curr'] < row['total_interest_expense_prev']:
+            curr_expense = row['InterestExpense_TTM_curr'] if pd.notna(row['InterestExpense_TTM_curr']) else 0
+            prev_expense = row['InterestExpense_TTM_prev'] if pd.notna(row['InterestExpense_TTM_prev']) else 0
+            if curr_expense < prev_expense:
                 score += 1
             
-            # Test 6: Change in Asset Quality > 0
-            curr_quality = 1 - (row['non_performing_loans_curr'] / row['total_loans_curr']) if row['total_loans_curr'] > 0 else 0
-            prev_quality = 1 - (row['non_performing_loans_prev'] / row['total_loans_prev']) if row['total_loans_prev'] > 0 else 0
-            if curr_quality > prev_quality:
+            # Test 6: Change in Asset Quality > 0 (using Operating Profit as proxy)
+            if row['OperatingProfit_TTM_curr'] > row['OperatingProfit_TTM_prev']:
                 score += 1
             
             # Normalize score
@@ -543,20 +587,25 @@ def calculate_f_score_securities(engine, analysis_date, universe_tickers):
     try:
         f_scores = {}
         
-        # Get securities-specific financial data
+        # Get securities-specific financial data from intermediary table
         ticker_str = "', '".join(universe_tickers)
+        
+        # Get current year and quarter
+        current_year = analysis_date.year
+        current_quarter = (analysis_date.month - 1) // 3 + 1
         
         query = f"""
         SELECT 
             ticker,
-            roa,
-            brokerage_income,
-            total_revenue,
-            total_assets,
-            trading_volume
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            TotalOperatingRevenue_TTM,
+            AvgTotalAssets,
+            BrokerageRevenue_TTM,
+            NetTradingIncome_TTM
+        FROM intermediary_calculations_securities
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{analysis_date.date()}'
+          AND year = {current_year}
+          AND quarter = {current_quarter}
         """
         
         current_data = pd.read_sql(query, engine.engine)
@@ -565,18 +614,19 @@ def calculate_f_score_securities(engine, analysis_date, universe_tickers):
             return f_scores
         
         # Get previous year data
-        prev_date = analysis_date - pd.DateOffset(years=1)
+        prev_year = current_year - 1
         prev_query = f"""
         SELECT 
             ticker,
-            roa,
-            brokerage_income,
-            total_revenue,
-            total_assets,
-            trading_volume
-        FROM vcsc_daily_data_complete
+            NetProfit_TTM,
+            TotalOperatingRevenue_TTM,
+            AvgTotalAssets,
+            BrokerageRevenue_TTM,
+            NetTradingIncome_TTM
+        FROM intermediary_calculations_securities
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{prev_date.date()}'
+          AND year = {prev_year}
+          AND quarter = {current_quarter}
         """
         
         prev_data = pd.read_sql(prev_query, engine.engine)
@@ -589,27 +639,31 @@ def calculate_f_score_securities(engine, analysis_date, universe_tickers):
             score = 0
             max_score = 5  # 5 tests for securities
             
+            # Calculate ROA (Net Profit / Average Total Assets)
+            curr_roa = row['NetProfit_TTM_curr'] / row['AvgTotalAssets_curr'] if row['AvgTotalAssets_curr'] > 0 else 0
+            prev_roa = row['NetProfit_TTM_prev'] / row['AvgTotalAssets_prev'] if row['AvgTotalAssets_prev'] > 0 else 0
+            
             # Test 1: ROA > 0
-            if row['roa_curr'] > 0:
+            if curr_roa > 0:
                 score += 1
             
             # Test 2: Brokerage Ratio > 0
-            brokerage_ratio = row['brokerage_income_curr'] / row['total_revenue_curr'] if row['total_revenue_curr'] > 0 else 0
+            brokerage_ratio = row['BrokerageRevenue_TTM_curr'] / row['TotalOperatingRevenue_TTM_curr'] if row['TotalOperatingRevenue_TTM_curr'] > 0 else 0
             if brokerage_ratio > 0:
                 score += 1
             
             # Test 3: Change in ROA > 0
-            if row['roa_curr'] > row['roa_prev']:
+            if curr_roa > prev_roa:
                 score += 1
             
-            # Test 4: Change in Efficiency > 0 (simplified)
-            curr_efficiency = row['total_revenue_curr'] / row['total_assets_curr'] if row['total_assets_curr'] > 0 else 0
-            prev_efficiency = row['total_revenue_prev'] / row['total_assets_prev'] if row['total_assets_prev'] > 0 else 0
+            # Test 4: Change in Efficiency > 0
+            curr_efficiency = row['TotalOperatingRevenue_TTM_curr'] / row['AvgTotalAssets_curr'] if row['AvgTotalAssets_curr'] > 0 else 0
+            prev_efficiency = row['TotalOperatingRevenue_TTM_prev'] / row['AvgTotalAssets_prev'] if row['AvgTotalAssets_prev'] > 0 else 0
             if curr_efficiency > prev_efficiency:
                 score += 1
             
-            # Test 5: Change in Trading Volume > 0
-            if row['trading_volume_curr'] > row['trading_volume_prev']:
+            # Test 5: Change in Trading Volume > 0 (using Net Trading Income as proxy)
+            if row['NetTradingIncome_TTM_curr'] > row['NetTradingIncome_TTM_prev']:
                 score += 1
             
             # Normalize score

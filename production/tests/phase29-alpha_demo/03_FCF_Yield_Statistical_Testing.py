@@ -236,18 +236,23 @@ def calculate_fcf_yield_factor(engine, analysis_date, universe_tickers):
         # Get financial data for FCF calculation
         ticker_str = "', '".join(universe_tickers)
         
-        # Query for financial metrics
+        # Get current year and quarter
+        current_year = analysis_date.year
+        current_quarter = (analysis_date.month - 1) // 3 + 1
+        
+        # Query for financial metrics from intermediary table
         query = f"""
         SELECT 
             ticker,
-            operating_cash_flow,
-            capital_expenditures,
-            market_cap,
-            total_assets,
-            depreciation_amortization
-        FROM vcsc_daily_data_complete
+            NetCFO_TTM,
+            CapEx_TTM,
+            FCF_TTM,
+            AvgTotalAssets,
+            DepreciationAmortization_TTM
+        FROM intermediary_calculations_enhanced
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{analysis_date.date()}'
+          AND year = {current_year}
+          AND quarter = {current_quarter}
         """
         
         financial_data = pd.read_sql(query, engine.engine)
@@ -255,68 +260,84 @@ def calculate_fcf_yield_factor(engine, analysis_date, universe_tickers):
         if financial_data.empty:
             return fcf_scores
         
-        # Get market cap data if not available in financial data
+        # Get market cap data from vcsc_daily_data_complete
         market_cap_query = f"""
         SELECT 
             ticker,
-            close * total_shares as market_cap
+            market_cap
         FROM vcsc_daily_data_complete
         WHERE ticker IN ('{ticker_str}')
-          AND date = '{analysis_date.date()}'
+          AND trading_date = '{analysis_date.date()}'
         """
         
-        market_cap_data = pd.read_sql(market_cap_query, engine.engine)
+        try:
+            market_cap_data = pd.read_sql(market_cap_query, engine.engine)
+        except Exception as e:
+            # Fallback: try with 'date' instead of 'trading_date'
+            market_cap_query_fallback = f"""
+            SELECT 
+                ticker,
+                market_cap
+            FROM vcsc_daily_data_complete
+            WHERE ticker IN ('{ticker_str}')
+              AND date = '{analysis_date.date()}'
+            """
+            market_cap_data = pd.read_sql(market_cap_query_fallback, engine.engine)
         
         # Merge data
         if not market_cap_data.empty:
-            financial_data = financial_data.merge(market_cap_data, on='ticker', how='left', suffixes=('', '_calc'))
-            # Use calculated market cap if original is null
-            financial_data['market_cap'] = financial_data['market_cap'].fillna(financial_data['market_cap_calc'])
+            financial_data = financial_data.merge(market_cap_data, on='ticker', how='left')
         
         for _, row in financial_data.iterrows():
             ticker = row['ticker']
             total_count += 1
             
-            # Get operating cash flow
-            ocf = row['operating_cash_flow']
+            # Get operating cash flow and capital expenditures
+            ocf = row['NetCFO_TTM']
+            capex = row['CapEx_TTM']
             
-            # Get capital expenditures (with imputation if needed)
-            capex = row['capital_expenditures']
-            
-            # Impute capex if missing using depreciation/amortization ratio
-            if pd.isna(capex) or capex == 0:
-                da = row['depreciation_amortization']
-                if not pd.isna(da) and da > 0:
-                    # Use 80% of depreciation as capex estimate (common ratio)
-                    capex = da * 0.8
-                    imputation_count += 1
-                else:
-                    # Use 5% of total assets as capex estimate
-                    total_assets = row['total_assets']
-                    if not pd.isna(total_assets) and total_assets > 0:
-                        capex = total_assets * 0.05
+                        # Use pre-calculated FCF if available, otherwise calculate it
+            if pd.notna(row['FCF_TTM']):
+                fcf = row['FCF_TTM']
+            else:
+                # Impute capex if missing using depreciation/amortization ratio
+                if pd.isna(capex) or capex == 0:
+                    da = row['DepreciationAmortization_TTM']
+                    if not pd.isna(da) and da > 0:
+                        # Use 80% of depreciation as capex estimate (common ratio)
+                        capex = da * 0.8
                         imputation_count += 1
                     else:
-                        continue  # Skip if no data available
+                        # Use 5% of total assets as capex estimate
+                        total_assets = row['AvgTotalAssets']
+                        if not pd.isna(total_assets) and total_assets > 0:
+                            capex = total_assets * 0.05
+                            imputation_count += 1
+                        else:
+                            continue  # Skip if no data available
+                
+                # Calculate FCF
+                if not pd.isna(ocf) and not pd.isna(capex):
+                    fcf = ocf - capex
+                else:
+                    continue  # Skip if no data available
             
-            # Calculate FCF
-            if not pd.isna(ocf) and not pd.isna(capex):
-                fcf = ocf - capex
+            # Get market cap
+            market_cap = row['market_cap']
+            
+            if not pd.isna(market_cap) and market_cap > 0:
+                # Calculate FCF Yield
+                fcf_yield = fcf / market_cap
                 
-                # Get market cap
-                market_cap = row['market_cap']
-                
-                if not pd.isna(market_cap) and market_cap > 0:
-                    # Calculate FCF Yield
-                    fcf_yield = fcf / market_cap
-                    
-                    # Store the raw FCF yield (will be normalized later)
-                    fcf_scores[ticker] = fcf_yield
+                # Store the raw FCF yield (will be normalized later)
+                fcf_scores[ticker] = fcf_yield
         
         # Log imputation rate
         if total_count > 0:
             imputation_rate = imputation_count / total_count
             print(f"FCF Yield Capex Imputation Rate: {imputation_rate:.2%} ({imputation_count}/{total_count})")
+        
+
         
         # Normalize FCF yields to 0-1 range
         if fcf_scores:
