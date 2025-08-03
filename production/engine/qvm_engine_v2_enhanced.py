@@ -232,7 +232,19 @@ class QVMEngineV2Enhanced:
         
         # Resolve configuration paths
         if config_path is None:
-            project_root = Path(__file__).parent.parent.parent
+            # Navigate from engine directory to project root: engine -> production -> project_root
+            # Engine is at: production/engine/qvm_engine_v2_enhanced.py
+            # Need to go: engine -> production -> project_root -> config
+            self.logger.debug(f"__file__ location: {__file__}")
+            
+            # Get absolute path of the engine file to avoid relative path issues
+            engine_file_absolute = Path(__file__).resolve()
+            self.logger.debug(f"__file__ absolute: {engine_file_absolute}")
+            
+            # Navigate from absolute engine path to project root
+            project_root = engine_file_absolute.parent.parent.parent
+            self.logger.debug(f"Calculated project root: {project_root}")
+            
             self.db_config_path = project_root / 'config' / 'database.yml'
             self.strategy_config_path = project_root / 'config' / 'strategy_config.yml'
             self.factor_metadata_path = project_root / 'config' / 'factor_metadata.yml'
@@ -241,6 +253,27 @@ class QVMEngineV2Enhanced:
             self.db_config_path = config_dir / 'database.yml'
             self.strategy_config_path = config_dir / 'strategy_config.yml'
             self.factor_metadata_path = config_dir / 'factor_metadata.yml'
+        
+        # Convert to absolute paths to avoid working directory issues
+        self.db_config_path = self.db_config_path.resolve()
+        self.strategy_config_path = self.strategy_config_path.resolve()
+        self.factor_metadata_path = self.factor_metadata_path.resolve()
+        
+        # Debug: Print the actual paths being used
+        self.logger.debug(f"Config paths:")
+        self.logger.debug(f"  Database: {self.db_config_path}")
+        self.logger.debug(f"  Strategy: {self.strategy_config_path}")
+        self.logger.debug(f"  Metadata: {self.factor_metadata_path}")
+        
+        # Verify paths exist
+        if not self.db_config_path.exists():
+            self.logger.error(f"Database config file not found: {self.db_config_path}")
+            self.logger.error(f"Current working directory: {Path.cwd()}")
+            self.logger.error(f"Engine file location: {Path(__file__)}")
+        if not self.strategy_config_path.exists():
+            self.logger.error(f"Strategy config file not found: {self.strategy_config_path}")
+        if not self.factor_metadata_path.exists():
+            self.logger.error(f"Factor metadata file not found: {self.factor_metadata_path}")
         
         # Load configurations
         self._load_configurations()
@@ -1191,16 +1224,88 @@ class QVMEngineV2Enhanced:
                     else:
                         momentum_scores[ticker] = 0.0
             
-            self.logger.debug(f"Calculated enhanced momentum scores for {len(momentum_scores)} tickers")
+                        self.logger.debug(f"Calculated enhanced momentum scores for {len(momentum_scores)} tickers")
             return momentum_scores
             
         except Exception as e:
             self.logger.error(f"Failed to calculate enhanced momentum composite: {e}")
             return {}
     
+    def _calculate_low_vol(self, analysis_date: pd.Timestamp, universe: List[str]) -> Dict[str, float]:
+        """
+        Calculate low-volatility factor scores for defensive overlay.
+        
+        Args:
+            analysis_date: Date for analysis
+            universe: List of tickers to analyze
+            
+        Returns:
+            Dict mapping ticker to low-volatility score (lower is better for defensive)
+        """
+        try:
+            low_vol_scores = {}
+            
+            # Get price data for volatility calculation
+            ticker_str = "', '".join(universe)
+            start_date = analysis_date - pd.DateOffset(months=12)  # 12 months for volatility calculation
+            
+            price_query = f"""
+            SELECT 
+                date,
+                ticker,
+                close as adj_close
+            FROM equity_history
+            WHERE ticker IN ('{ticker_str}')
+              AND date BETWEEN '{start_date.date()}' AND '{analysis_date.date()}'
+            ORDER BY ticker, date
+            """
+            
+            price_data = pd.read_sql(price_query, self.engine, parse_dates=['date'])
+            
+            if price_data.empty:
+                self.logger.warning("No price data available for low-volatility calculation")
+                return low_vol_scores
+            
+            # Calculate daily returns
+            price_data['return'] = price_data.groupby('ticker')['adj_close'].pct_change()
+            
+            # Calculate rolling volatility (252-day annualized)
+            volatility_data = price_data.groupby('ticker')['return'].rolling(
+                window=252, min_periods=126
+            ).std().reset_index()
+            
+            # Annualize volatility
+            volatility_data['volatility_annualized'] = volatility_data['return'] * np.sqrt(252)
+            
+            # Get latest volatility for each ticker
+            latest_volatility = volatility_data.groupby('ticker')['volatility_annualized'].last()
+            
+            # Convert to low-volatility scores (lower volatility = higher score)
+            # Use inverse of volatility, normalized to 0-1 range
+            if not latest_volatility.empty:
+                max_vol = latest_volatility.max()
+                min_vol = latest_volatility.min()
+                
+                if max_vol > min_vol:
+                    # Normalize to 0-1 range (lower volatility = higher score)
+                    low_vol_scores = {
+                        ticker: 1.0 - ((vol - min_vol) / (max_vol - min_vol))
+                        for ticker, vol in latest_volatility.items()
+                    }
+                else:
+                    # All volatilities are the same, assign equal scores
+                    low_vol_scores = {ticker: 0.5 for ticker in latest_volatility.index}
+            
+            self.logger.debug(f"Calculated low-volatility scores for {len(low_vol_scores)} tickers")
+            return low_vol_scores
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate low-volatility factor: {e}")
+            return {}
+    
     def _calculate_returns_fixed(self, price_data: pd.DataFrame, 
-                                start_date: pd.Timestamp, 
-                                end_date: pd.Timestamp) -> pd.Series:
+                               start_date: pd.Timestamp, 
+                               end_date: pd.Timestamp) -> pd.Series:
         """
         ENHANCED LOGIC: Fixed return calculation with better missing date handling.
         """
