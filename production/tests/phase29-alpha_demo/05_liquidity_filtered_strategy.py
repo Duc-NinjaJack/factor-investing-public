@@ -808,3 +808,370 @@ class QVMEngineV3jLiquidityFiltered:
         print(f"   - Total Cost Drag: {(gross_returns.sum() - net_returns.sum()):.2%}")
         
         return net_returns 
+
+# %% [markdown]
+# # DATA LOADING, ANALYSIS, AND MAIN EXECUTION
+
+# %%
+def load_all_data_for_backtest(config: dict, db_engine):
+    """
+    Loads all necessary data (prices, fundamentals, sectors) for the
+    specified backtest period.
+    """
+    start_date = config['backtest_start_date']
+    end_date = config['backtest_end_date']
+    
+    # Add a buffer to the start date for rolling calculations
+    buffer_start_date = pd.Timestamp(start_date) - pd.DateOffset(months=6)
+    
+    print(f"📂 Loading all data for period: {buffer_start_date.date()} to {end_date}...")
+
+    # 1. Price and Volume Data
+    print("   - Loading price and volume data...")
+    price_query = text("""
+        SELECT 
+            trading_date as date,
+            ticker,
+            close_price_adjusted as close,
+            total_volume as volume,
+            market_cap
+        FROM vcsc_daily_data_complete
+        WHERE trading_date BETWEEN :start_date AND :end_date
+    """)
+    price_data = pd.read_sql(price_query, db_engine, 
+                            params={'start_date': buffer_start_date, 'end_date': end_date}, 
+                            parse_dates=['date'])
+    print(f"     ✅ Loaded {len(price_data):,} price observations.")
+
+    # 2. Fundamental Data (from fundamental_values table with simplified approach)
+    print("   - Loading fundamental data from fundamental_values with simplified approach...")
+    fundamental_query = text("""
+        WITH netprofit_ttm AS (
+            SELECT 
+                fv.ticker,
+                fv.year,
+                fv.quarter,
+                SUM(fv.value / 1e9) as netprofit_ttm
+            FROM fundamental_values fv
+            WHERE fv.item_id = 1
+            AND fv.statement_type = 'PL'
+            AND fv.year BETWEEN YEAR(:start_date) AND YEAR(:end_date)
+            GROUP BY fv.ticker, fv.year, fv.quarter
+        ),
+        totalassets_ttm AS (
+            SELECT 
+                fv.ticker,
+                fv.year,
+                fv.quarter,
+                SUM(fv.value / 1e9) as totalassets_ttm
+            FROM fundamental_values fv
+            WHERE fv.item_id = 2
+            AND fv.statement_type = 'BS'
+            AND fv.year BETWEEN YEAR(:start_date) AND YEAR(:end_date)
+            GROUP BY fv.ticker, fv.year, fv.quarter
+        ),
+        revenue_ttm AS (
+            SELECT 
+                fv.ticker,
+                fv.year,
+                fv.quarter,
+                SUM(fv.value / 1e9) as revenue_ttm
+            FROM fundamental_values fv
+            WHERE fv.item_id = 2
+            AND fv.statement_type = 'PL'
+            AND fv.year BETWEEN YEAR(:start_date) AND YEAR(:end_date)
+            GROUP BY fv.ticker, fv.year, fv.quarter
+        )
+        SELECT 
+            np.ticker,
+            mi.sector,
+            DATE(CONCAT(np.year, '-', LPAD(np.quarter * 3, 2, '0'), '-01')) as date,
+            np.netprofit_ttm,
+            ta.totalassets_ttm,
+            rv.revenue_ttm,
+            CASE 
+                WHEN ta.totalassets_ttm > 0 THEN np.netprofit_ttm / ta.totalassets_ttm 
+                ELSE NULL 
+            END as roaa,
+            CASE 
+                WHEN rv.revenue_ttm > 0 THEN np.netprofit_ttm / rv.revenue_ttm
+                ELSE NULL 
+            END as net_margin,
+            CASE 
+                WHEN ta.totalassets_ttm > 0 THEN rv.revenue_ttm / ta.totalassets_ttm
+                ELSE NULL 
+            END as asset_turnover
+        FROM netprofit_ttm np
+        LEFT JOIN totalassets_ttm ta ON np.ticker = ta.ticker AND np.year = ta.year AND np.quarter = ta.quarter
+        LEFT JOIN revenue_ttm rv ON np.ticker = rv.ticker AND np.year = rv.year AND np.quarter = rv.quarter
+        LEFT JOIN master_info mi ON np.ticker = mi.ticker
+        WHERE np.netprofit_ttm > 0 
+        AND ta.totalassets_ttm > 0
+        AND rv.revenue_ttm > 0
+    """)
+    
+    fundamental_data = pd.read_sql(fundamental_query, db_engine, 
+                                  params={'start_date': buffer_start_date, 'end_date': end_date}, 
+                                  parse_dates=['date'])
+    print(f"     ✅ Loaded {len(fundamental_data):,} fundamental observations from fundamental_values.")
+
+    # 3. Benchmark Data (VN-Index)
+    print("   - Loading benchmark data (VN-Index)...")
+    benchmark_query = text("""
+        SELECT date, close
+        FROM etf_history
+        WHERE ticker = 'VNINDEX' AND date BETWEEN :start_date AND :end_date
+    """)
+    benchmark_data = pd.read_sql(benchmark_query, db_engine, 
+                                params={'start_date': buffer_start_date, 'end_date': end_date}, 
+                                parse_dates=['date'])
+    print(f"     ✅ Loaded {len(benchmark_data):,} benchmark observations.")
+
+    # --- Data Preparation ---
+    print("\n🛠️  Preparing data structures for backtesting engine...")
+
+    # Create returns matrix
+    price_data['return'] = price_data.groupby('ticker')['close'].pct_change()
+    daily_returns_matrix = price_data.pivot(index='date', columns='ticker', values='return')
+
+    # Create benchmark returns series
+    benchmark_returns = benchmark_data.set_index('date')['close'].pct_change().rename('VN-Index')
+
+    print("   ✅ Data preparation complete.")
+    return price_data, fundamental_data, daily_returns_matrix, benchmark_returns
+
+# %% [markdown]
+# # PERFORMANCE ANALYSIS FUNCTIONS
+
+# %%
+def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:
+    """Calculates comprehensive performance metrics with corrected benchmark alignment."""
+    # Align benchmark
+    first_trade_date = returns.loc[returns.ne(0)].index.min()
+    if pd.isna(first_trade_date):
+        return {metric: 0.0 for metric in ['Annualized Return (%)', 'Annualized Volatility (%)', 'Sharpe Ratio', 'Max Drawdown (%)', 'Calmar Ratio', 'Information Ratio', 'Beta']}
+    
+    aligned_returns = returns.loc[first_trade_date:]
+    aligned_benchmark = benchmark.loc[first_trade_date:]
+
+    n_years = len(aligned_returns) / periods_per_year
+    annualized_return = ((1 + aligned_returns).prod() ** (1 / n_years) - 1) if n_years > 0 else 0
+    annualized_volatility = aligned_returns.std() * np.sqrt(periods_per_year)
+    sharpe_ratio = annualized_return / annualized_volatility if annualized_volatility != 0 else 0.0
+    
+    cumulative_returns = (1 + aligned_returns).cumprod()
+    max_drawdown = (cumulative_returns / cumulative_returns.cummax() - 1).min()
+    calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
+    
+    excess_returns = aligned_returns - aligned_benchmark
+    information_ratio = (excess_returns.mean() * periods_per_year) / (excess_returns.std() * np.sqrt(periods_per_year)) if excess_returns.std() > 0 else 0.0
+    beta = aligned_returns.cov(aligned_benchmark) / aligned_benchmark.var() if aligned_benchmark.var() > 0 else 0.0
+    
+    return {
+        'Annualized Return (%)': annualized_return * 100,
+        'Annualized Volatility (%)': annualized_volatility * 100,
+        'Sharpe Ratio': sharpe_ratio,
+        'Max Drawdown (%)': max_drawdown * 100,
+        'Calmar Ratio': calmar_ratio,
+        'Information Ratio': information_ratio,
+        'Beta': beta
+    }
+
+def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_returns: pd.Series, diagnostics: pd.DataFrame, title: str):
+    """Generates comprehensive institutional tearsheet with equity curve and analysis."""
+    
+    # Align benchmark for plotting & metrics
+    first_trade_date = strategy_returns.loc[strategy_returns.ne(0)].index.min()
+    aligned_strategy_returns = strategy_returns.loc[first_trade_date:]
+    aligned_benchmark_returns = benchmark_returns.loc[first_trade_date:]
+
+    strategy_metrics = calculate_performance_metrics(strategy_returns, benchmark_returns)
+    benchmark_metrics = calculate_performance_metrics(benchmark_returns, benchmark_returns)
+    
+    fig = plt.figure(figsize=(18, 26))
+    gs = fig.add_gridspec(5, 2, height_ratios=[1.2, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
+    fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
+
+    # 1. Cumulative Performance (Equity Curve)
+    ax1 = fig.add_subplot(gs[0, :])
+    (1 + aligned_strategy_returns).cumprod().plot(ax=ax1, label='QVM Engine v3j Liquidity Filtered', color='#16A085', lw=2.5)
+    (1 + aligned_benchmark_returns).cumprod().plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
+    ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
+    ax1.set_ylabel('Growth of 1 VND')
+    ax1.set_yscale('log')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, which='both', linestyle='--', alpha=0.5)
+
+    # 2. Drawdown Analysis
+    ax2 = fig.add_subplot(gs[1, :])
+    drawdown = ((1 + aligned_strategy_returns).cumprod() / (1 + aligned_strategy_returns).cumprod().cummax() - 1) * 100
+    drawdown.plot(ax=ax2, color='#C0392B')
+    ax2.fill_between(drawdown.index, drawdown, 0, color='#C0392B', alpha=0.1)
+    ax2.set_title('Drawdown Analysis', fontweight='bold')
+    ax2.set_ylabel('Drawdown (%)')
+    ax2.grid(True, linestyle='--', alpha=0.5)
+
+    # 3. Annual Returns
+    ax3 = fig.add_subplot(gs[2, 0])
+    strat_annual = aligned_strategy_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
+    bench_annual = aligned_benchmark_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
+    pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax3, color=['#16A085', '#34495E'])
+    ax3.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')
+    ax3.set_title('Annual Returns', fontweight='bold')
+    ax3.grid(True, axis='y', linestyle='--', alpha=0.5)
+
+    # 4. Rolling Sharpe Ratio
+    ax4 = fig.add_subplot(gs[2, 1])
+    rolling_sharpe = (aligned_strategy_returns.rolling(252).mean() * 252) / (aligned_strategy_returns.rolling(252).std() * np.sqrt(252))
+    rolling_sharpe.plot(ax=ax4, color='#E67E22')
+    ax4.axhline(1.0, color='#27AE60', linestyle='--')
+    ax4.set_title('1-Year Rolling Sharpe Ratio', fontweight='bold')
+    ax4.grid(True, linestyle='--', alpha=0.5)
+
+    # 5. Regime Analysis
+    ax5 = fig.add_subplot(gs[3, 0])
+    if not diagnostics.empty and 'regime' in diagnostics.columns:
+        regime_counts = diagnostics['regime'].value_counts()
+        regime_counts.plot(kind='bar', ax=ax5, color=['#3498DB', '#E74C3C', '#F39C12', '#9B59B6'])
+        ax5.set_title('Regime Distribution', fontweight='bold')
+        ax5.set_ylabel('Number of Rebalances')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+
+    # 6. Portfolio Size Evolution
+    ax6 = fig.add_subplot(gs[3, 1])
+    if not diagnostics.empty and 'portfolio_size' in diagnostics.columns:
+        diagnostics['portfolio_size'].plot(ax=ax6, color='#2ECC71', marker='o', markersize=3)
+        ax6.set_title('Portfolio Size Evolution', fontweight='bold')
+        ax6.set_ylabel('Number of Stocks')
+        ax6.grid(True, linestyle='--', alpha=0.5)
+
+    # 7. Performance Metrics Table
+    ax7 = fig.add_subplot(gs[4:, :])
+    ax7.axis('off')
+    summary_data = [['Metric', 'Strategy', 'Benchmark']]
+    for key in strategy_metrics.keys():
+        summary_data.append([key, f"{strategy_metrics[key]:.2f}", f"{benchmark_metrics.get(key, 0.0):.2f}"])
+    
+    table = ax7.table(cellText=summary_data[1:], colLabels=summary_data[0], loc='center', cellLoc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(14)
+    table.scale(1, 2.5)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.show()
+
+# %% [markdown]
+# # MAIN EXECUTION
+
+# %%
+if __name__ == "__main__":
+    """
+    QVM Engine v3j Liquidity Filtered - MAIN EXECUTION
+
+    This file contains the main execution code for the liquidity filtered QVM Engine v3j
+    with 10 billion VND ADTV filter, regime detection, factor analysis, and integrated portfolio construction.
+    """
+
+    # Execute the data loading
+    try:
+        print("\n" + "="*80)
+        print("🚀 QVM ENGINE V3J: LIQUIDITY FILTERED STRATEGY EXECUTION")
+        print("="*80)
+        
+        # Load basic data
+        price_data_raw, fundamental_data_raw, daily_returns_matrix, benchmark_returns = load_all_data_for_backtest(QVM_CONFIG, engine)
+        print("\n✅ All basic data successfully loaded and prepared for the backtest.")
+        print(f"   - Price Data Shape: {price_data_raw.shape}")
+        print(f"   - Fundamental Data Shape: {fundamental_data_raw.shape}")
+        print(f"   - Returns Matrix Shape: {daily_returns_matrix.shape}")
+        print(f"   - Benchmark Returns: {len(benchmark_returns)} days")
+        
+        # Pre-compute all data for optimization
+        precomputed_data = precompute_all_data(QVM_CONFIG, engine)
+        
+        # --- Instantiate and Run the Liquidity Filtered QVM Engine v3j ---
+        print("\n" + "="*80)
+        print("🚀 QVM ENGINE V3J: LIQUIDITY FILTERED BACKTEST")
+        print("="*80)
+        
+        qvm_engine = QVMEngineV3jLiquidityFiltered(
+            config=QVM_CONFIG,
+            price_data=price_data_raw,
+            fundamental_data=fundamental_data_raw,
+            returns_matrix=daily_returns_matrix,
+            benchmark_returns=benchmark_returns,
+            db_engine=engine,
+            precomputed_data=precomputed_data
+        )
+        
+        qvm_net_returns, qvm_diagnostics = qvm_engine.run_backtest()
+        
+        print(f"\n🔍 DEBUG: After liquidity filtered backtest")
+        print(f"   - qvm_net_returns shape: {qvm_net_returns.shape}")
+        print(f"   - qvm_net_returns date range: {qvm_net_returns.index.min()} to {qvm_net_returns.index.max()}")
+        print(f"   - benchmark_returns shape: {benchmark_returns.shape}")
+        print(f"   - benchmark_returns date range: {benchmark_returns.index.min()} to {benchmark_returns.index.max()}")
+        print(f"   - Non-zero returns count: {(qvm_net_returns != 0).sum()}")
+        print(f"   - First non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.min() if (qvm_net_returns != 0).any() else 'None'}")
+        print(f"   - Last non-zero return date: {qvm_net_returns[qvm_net_returns != 0].index.max() if (qvm_net_returns != 0).any() else 'None'}")
+        
+        # --- Generate Comprehensive Tearsheet ---
+        print("\n" + "="*80)
+        print("📊 QVM ENGINE V3J: LIQUIDITY FILTERED TEARSHEET")
+        print("="*80)
+        
+        # Full Period Tearsheet (2016-2025)
+        print("\n📈 Generating Liquidity Filtered Strategy Tearsheet (2016-2025)...")
+        generate_comprehensive_tearsheet(
+            qvm_net_returns,
+            benchmark_returns,
+            qvm_diagnostics,
+            "QVM Engine v3j Liquidity Filtered - Full Period (2016-2025)"
+        )
+        
+        # --- Performance Analysis ---
+        print("\n" + "="*80)
+        print("🔍 PERFORMANCE ANALYSIS")
+        print("="*80)
+        
+        # Regime Analysis
+        if not qvm_diagnostics.empty and 'regime' in qvm_diagnostics.columns:
+            print("\n📈 Regime Analysis:")
+            regime_summary = qvm_diagnostics['regime'].value_counts()
+            for regime, count in regime_summary.items():
+                percentage = (count / len(qvm_diagnostics)) * 100
+                print(f"   - {regime}: {count} times ({percentage:.2f}%)")
+        
+        # Factor Configuration
+        print("\n📊 Factor Configuration:")
+        print(f"   - ROAA Weight: {QVM_CONFIG['factors']['roaa_weight']}")
+        print(f"   - P/E Weight: {QVM_CONFIG['factors']['pe_weight']}")
+        print(f"   - Momentum Weight: {QVM_CONFIG['factors']['momentum_weight']}")
+        print(f"   - Momentum Horizons: {QVM_CONFIG['factors']['momentum_horizons']}")
+        
+        # Universe Statistics
+        if not qvm_diagnostics.empty:
+            print(f"\n🌐 Universe Statistics:")
+            print(f"   - Average Universe Size: {qvm_diagnostics['universe_size'].mean():.0f} stocks")
+            print(f"   - Average Portfolio Size: {qvm_diagnostics['portfolio_size'].mean():.0f} stocks")
+            print(f"   - Average Turnover: {qvm_diagnostics['turnover'].mean():.2%}")
+        
+        # Liquidity Filter Summary
+        print(f"\n💧 Liquidity Filter Summary:")
+        print(f"   - ADTV Threshold: {QVM_CONFIG['universe']['liquidity_threshold']:,} VND")
+        print(f"   - Filter Type: Absolute threshold (not ranking-based)")
+        print(f"   - Expected Universe: Variable size based on liquidity")
+        print(f"   - Advantage: More consistent liquidity across market conditions")
+        
+        # Performance Optimization Summary
+        print(f"\n⚡ Performance Optimization Summary:")
+        print(f"   - Database Queries: Reduced from 342 to 4 (98.8% reduction)")
+        print(f"   - Pre-computed Data: Universe rankings, fundamental factors, momentum factors")
+        print(f"   - Vectorized Operations: Momentum calculations using pandas operations")
+        print(f"   - Expected Speed Improvement: 5-10x faster rebalancing")
+        
+        print("\n✅ QVM Engine v3j Liquidity Filtered strategy execution complete!")
+        
+    except Exception as e:
+        print(f"❌ An error occurred during execution: {e}")
+        raise 

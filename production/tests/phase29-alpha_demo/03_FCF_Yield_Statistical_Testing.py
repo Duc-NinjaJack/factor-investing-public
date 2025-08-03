@@ -508,7 +508,21 @@ def calculate_factor_returns(factor_scores, forward_returns, period, n_quintiles
     df = pd.DataFrame(data)
     
     # Create quintiles
-    df['quintile'] = pd.qcut(df['factor_score'], n_quintiles, labels=False)
+    try:
+        df['quintile'] = pd.qcut(df['factor_score'], n_quintiles, labels=False, duplicates='drop')
+    except ValueError as e:
+        # If we still can't create quintiles due to insufficient unique values,
+        # try with fewer quintiles
+        unique_values = df['factor_score'].nunique()
+        if unique_values < 2:
+            return {}
+        
+        # Use the maximum number of quintiles possible
+        max_quintiles = min(unique_values, n_quintiles)
+        if max_quintiles < 2:
+            return {}
+            
+        df['quintile'] = pd.qcut(df['factor_score'], max_quintiles, labels=False, duplicates='drop')
     
     # Calculate returns by quintile
     quintile_returns = df.groupby('quintile')['forward_return'].mean()
@@ -564,7 +578,7 @@ for period in forward_periods:
         ic_stats[period] = {
             'mean': np.mean(ic_values),
             'std': np.std(ic_values),
-            't_stat': ic_values.mean() / (ic_values.std() / np.sqrt(len(ic_values))),
+            't_stat': np.mean(ic_values) / (np.std(ic_values) / np.sqrt(len(ic_values))),
             'p_value': t_test_one_sample(ic_values)[1],
             'count': len(ic_values)
         }

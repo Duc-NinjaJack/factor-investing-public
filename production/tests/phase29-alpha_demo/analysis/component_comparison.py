@@ -12,6 +12,7 @@ import seaborn as sns
 from pathlib import Path
 import sys
 import warnings
+from sqlalchemy import text
 
 # Add project root to path
 try:
@@ -27,6 +28,7 @@ try:
         sys.path.insert(0, str(project_root))
     
     from production.database.connection import get_database_manager
+    sys.path.insert(0, str(Path(__file__).parent.parent))
     from components.base_engine import BaseEngine
 
 except (ImportError, FileNotFoundError) as e:
@@ -72,7 +74,12 @@ class ComponentComparison:
         precomputed_data = self.base_engine.precompute_all_data(config, self.engine)
         
         # Import and run base strategy
-        from components.base_strategy import QVMEngineV3jBase
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("base_strategy", str(Path(__file__).parent.parent / "01_base_strategy.py"))
+        base_strategy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(base_strategy_module)
+        QVMEngineV3jBase = base_strategy_module.QVMEngineV3jBase
         
         qvm_engine = QVMEngineV3jBase(
             config=config,
@@ -116,7 +123,12 @@ class ComponentComparison:
         precomputed_data = self.base_engine.precompute_all_data(regime_config, self.engine)
         
         # Import and run regime-only strategy
-        from components.regime_only_strategy import QVMEngineV3jRegimeOnly
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("regime_only", str(Path(__file__).parent.parent / "02_regime_only.py"))
+        regime_only_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(regime_only_module)
+        QVMEngineV3jRegimeOnly = regime_only_module.QVMEngineV3jRegimeOnly
         
         qvm_engine = QVMEngineV3jRegimeOnly(
             config=regime_config,
@@ -160,7 +172,12 @@ class ComponentComparison:
         precomputed_data = self.base_engine.precompute_all_data(factors_config, self.engine)
         
         # Import and run factors-only strategy
-        from components.factors_only_strategy import QVMEngineV3jFactorsOnly
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("factors_only", str(Path(__file__).parent.parent / "03_factors_only.py"))
+        factors_only_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(factors_only_module)
+        QVMEngineV3jFactorsOnly = factors_only_module.QVMEngineV3jFactorsOnly
         
         qvm_engine = QVMEngineV3jFactorsOnly(
             config=factors_config,
@@ -197,7 +214,12 @@ class ComponentComparison:
         precomputed_data = self.base_engine.precompute_all_data(config, self.engine)
         
         # Import and run integrated strategy
-        from components.integrated_strategy import QVMEngineV3jIntegrated
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("integrated", str(Path(__file__).parent.parent / "04_integrated_strategy.py"))
+        integrated_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(integrated_module)
+        QVMEngineV3jIntegrated = integrated_module.QVMEngineV3jIntegrated
         
         qvm_engine = QVMEngineV3jIntegrated(
             config=config,
