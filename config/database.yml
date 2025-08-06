@@ -4,10 +4,10 @@ production:
   host: localhost
   schema_name: alphabeta
   username: root
-  password: "12345678"
+  password: "factor-rocks"
 
 development:
   host: localhost
   schema_name: alphabeta
   username: root
-  password: "12345678"
+  password: "factor-rocks"
