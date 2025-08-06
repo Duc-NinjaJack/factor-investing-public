@@ -97,7 +97,7 @@ QVM_CONFIG = {
         "Sideways": {
             "rebalancing_frequency": "biweekly",
             "days_between_rebalancing": 14,
-            "regime_allocation": 0.6,
+            "regime_allocation": 1.0,  # Increased to 100% allocation
             "description": "Biweekly rebalancing for balanced approach"
         },
         "Volatile": {
