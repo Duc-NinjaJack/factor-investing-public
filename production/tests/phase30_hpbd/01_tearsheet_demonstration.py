@@ -761,22 +761,35 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 # # SAVE RESULTS
 
 # %%
+# Dynamic filename generation
+def get_output_filenames(prefix="01", suffix="tearsheet"):
+    """Generate unique filenames based on current file."""
+    return {
+        'portfolio_values': f"{prefix}_tearsheet_portfolio_values_{suffix}.csv",
+        'daily_returns': f"{prefix}_tearsheet_daily_returns_{suffix}.csv",
+        'performance_metrics': f"{prefix}_tearsheet_performance_metrics_{suffix}.txt",
+        'equity_curve': f"{prefix}_equity_curve_{suffix}.png"
+    }
+
 # Save results
 results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
-portfolio_values.to_csv(results_dir / "19_tearsheet_portfolio_values.csv", index=False)
-daily_returns.to_csv(results_dir / "19_tearsheet_daily_returns.csv", index=False)
+# Get dynamic filenames
+filenames = get_output_filenames("01", "tearsheet")
+
+portfolio_values.to_csv(results_dir / filenames['portfolio_values'], index=False)
+daily_returns.to_csv(results_dir / filenames['daily_returns'], index=False)
 
 # Save performance metrics
-with open(results_dir / "19_tearsheet_performance_metrics.txt", 'w') as f:
+with open(results_dir / filenames['performance_metrics'], 'w') as f:
     for metric, value in performance_metrics.items():
         f.write(f"{metric}: {value}\n")
 
 print(f"\n📁 Results saved to docs/")
-print(f"   - 19_tearsheet_portfolio_values.csv: {len(portfolio_values)} portfolio values")
-print(f"   - 19_tearsheet_daily_returns.csv: {len(daily_returns)} daily returns")
-print(f"   - 19_tearsheet_performance_metrics.txt: Performance metrics")
+print(f"   - {filenames['portfolio_values']}: {len(portfolio_values)} portfolio values")
+print(f"   - {filenames['daily_returns']}: {len(daily_returns)} daily returns")
+print(f"   - {filenames['performance_metrics']}: Performance metrics")
 
 # %% [markdown]
 # # EQUITY CURVE VISUALIZATION

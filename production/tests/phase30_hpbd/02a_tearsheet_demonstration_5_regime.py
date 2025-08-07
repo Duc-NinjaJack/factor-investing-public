@@ -74,15 +74,15 @@ class EnhancedRegimeDetector:
         4. CORRECTION: Moderate negative returns, elevated volatility
         5. CRISIS: Strong negative returns, high volatility
         """
-        # More inclusive classification logic
-        if rolling_return > self.return_thresholds['strong_positive'] and rolling_vol < self.volatility_thresholds['low']:
-            return 'bull'
-        elif rolling_return > self.return_thresholds['moderate_positive']:
-            return 'growth'  
-        elif rolling_return < self.return_thresholds['strong_negative'] and rolling_vol > self.volatility_thresholds['high']:
+        # More sensible classification logic - prioritize return direction
+        if rolling_return < self.return_thresholds['strong_negative'] and rolling_vol > self.volatility_thresholds['high']:
             return 'crisis'
         elif rolling_return < self.return_thresholds['moderate_negative'] and rolling_vol > self.volatility_thresholds['medium']:
             return 'correction'
+        elif rolling_return > self.return_thresholds['strong_positive'] and rolling_vol < self.volatility_thresholds['low']:
+            return 'bull'
+        elif rolling_return > self.return_thresholds['moderate_positive'] and rolling_vol < self.volatility_thresholds['medium']:
+            return 'growth'
         elif abs(rolling_return) < abs(self.return_thresholds['moderate_negative']):
             return 'sideways'
         else:
@@ -211,6 +211,21 @@ class EnhancedRegimeDetector:
         sample_regimes = benchmark_data[benchmark_data['date'] >= benchmark_data.iloc[self.lookback_period]['date']].head(20)
         for _, row in sample_regimes.iterrows():
             print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
+        
+        # Debug: Show specific periods of interest
+        print(f"   🔍 2018 Period Analysis:")
+        period_2018 = benchmark_data[(benchmark_data['date'] >= pd.to_datetime('2018-01-01').date()) & 
+                                   (benchmark_data['date'] <= pd.to_datetime('2018-12-31').date())]
+        if not period_2018.empty:
+            for _, row in period_2018.head(10).iterrows():
+                print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
+        
+        print(f"   🔍 2022 Period Analysis:")
+        period_2022 = benchmark_data[(benchmark_data['date'] >= pd.to_datetime('2022-01-01').date()) & 
+                                   (benchmark_data['date'] <= pd.to_datetime('2022-12-31').date())]
+        if not period_2022.empty:
+            for _, row in period_2022.head(10).iterrows():
+                print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
         
         # Calculate regime stability metrics
         regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
@@ -720,7 +735,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
                             break
                     ax1.axvspan(start_date, end_date, alpha=0.1, color='green', label='Bull Period' if i == 0 else "")
         
-        # Shade growth periods (light green)
+        # Shade growth periods (orange)
         growth_periods = regime_data[regime_data['regime'] == 'growth']
         if not growth_periods.empty:
             for i, date in enumerate(growth_periods.index):
@@ -732,9 +747,9 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
                             end_date = growth_periods.index[j]
                         else:
                             break
-                    ax1.axvspan(start_date, end_date, alpha=0.05, color='lightgreen', label='Growth Period' if i == 0 else "")
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='orange', label='Growth Period' if i == 0 else "")
         
-        # Shade correction periods (orange)
+        # Shade correction periods (red)
         correction_periods = regime_data[regime_data['regime'] == 'correction']
         if not correction_periods.empty:
             for i, date in enumerate(correction_periods.index):
@@ -746,7 +761,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
                             end_date = correction_periods.index[j]
                         else:
                             break
-                    ax1.axvspan(start_date, end_date, alpha=0.1, color='orange', label='Correction Period' if i == 0 else "")
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Correction Period' if i == 0 else "")
         
         # Shade crisis periods (red)
         crisis_periods = regime_data[regime_data['regime'] == 'crisis']
@@ -798,7 +813,16 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     ax5 = fig.add_subplot(gs[3, 0])
     if not diagnostics.empty and 'regime' in diagnostics.columns:
         regime_counts = diagnostics['regime'].value_counts()
-        regime_counts.plot(kind='bar', ax=ax5, color=['#3498DB', '#E74C3C', '#F39C12', '#9B59B6'])
+        # Define consistent colors: bull=green, growth=orange, correction=red, crisis=red, sideways=yellow
+        color_map = {
+            'bull': 'green',
+            'growth': 'orange', 
+            'correction': 'red',
+            'crisis': 'red',
+            'sideways': 'yellow'
+        }
+        colors = [color_map.get(regime, 'gray') for regime in regime_counts.index]
+        regime_counts.plot(kind='bar', ax=ax5, color=colors)
         ax5.set_title('Regime Distribution', fontweight='bold')
         ax5.set_ylabel('Number of Rebalances')
         ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
@@ -863,22 +887,35 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 # # SAVE RESULTS
 
 # %%
+# Dynamic filename generation
+def get_output_filenames(prefix="02a", suffix="5_regime"):
+    """Generate unique filenames based on current file."""
+    return {
+        'portfolio_values': f"{prefix}_tearsheet_portfolio_values_{suffix}.csv",
+        'daily_returns': f"{prefix}_tearsheet_daily_returns_{suffix}.csv",
+        'performance_metrics': f"{prefix}_tearsheet_performance_metrics_{suffix}.txt",
+        'equity_curve': f"{prefix}_equity_curve_{suffix}.png"
+    }
+
 # Save results
 results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
-portfolio_values.to_csv(results_dir / "19_tearsheet_portfolio_values.csv", index=False)
-daily_returns.to_csv(results_dir / "19_tearsheet_daily_returns.csv", index=False)
+# Get dynamic filenames
+filenames = get_output_filenames("02a", "5_regime")
+
+portfolio_values.to_csv(results_dir / filenames['portfolio_values'], index=False)
+daily_returns.to_csv(results_dir / filenames['daily_returns'], index=False)
 
 # Save performance metrics
-with open(results_dir / "19_tearsheet_performance_metrics.txt", 'w') as f:
+with open(results_dir / filenames['performance_metrics'], 'w') as f:
     for metric, value in performance_metrics.items():
         f.write(f"{metric}: {value}\n")
 
 print(f"\n📁 Results saved to docs/")
-print(f"   - 19_tearsheet_portfolio_values.csv: {len(portfolio_values)} portfolio values")
-print(f"   - 19_tearsheet_daily_returns.csv: {len(daily_returns)} daily returns")
-print(f"   - 19_tearsheet_performance_metrics.txt: Performance metrics")
+print(f"   - {filenames['portfolio_values']}: {len(portfolio_values)} portfolio values")
+print(f"   - {filenames['daily_returns']}: {len(daily_returns)} daily returns")
+print(f"   - {filenames['performance_metrics']}: Performance metrics")
 
 # %% [markdown]
 # # EQUITY CURVE VISUALIZATION
@@ -963,10 +1000,11 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Save the plot
     results_dir = Path("docs")
-    plt.savefig(results_dir / "19_equity_curve.png", dpi=300, bbox_inches='tight')
+    filenames = get_output_filenames("02a", "5_regime")
+    plt.savefig(results_dir / filenames['equity_curve'], dpi=300, bbox_inches='tight')
     plt.show()
     
-    print(f"   - 19_equity_curve.png: Equity curve visualization saved")
+    print(f"   - {filenames['equity_curve']}: Equity curve visualization saved")
     print(f"   📊 Strategy data points: {len(strategy_aligned)}")
     print(f"   📊 Benchmark data points: {len(benchmark_aligned)}")
     print(f"   📊 Common dates: {len(common_dates)}")

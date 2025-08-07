@@ -539,6 +539,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                 # Equal weight portfolio return
                                 portfolio_return = portfolio_daily_returns.mean()
                                 
+                                # Apply regime-based allocation to the daily return
+                                portfolio_return = portfolio_return * regime_allocation
+                                
                                 # Apply transaction costs on rebalancing day
                                 if daily_date == date:
                                     transaction_cost = config['transaction_cost_bps'] / 10000
@@ -596,6 +599,10 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
     
     # Sort by adjusted composite score within each date
     holdings_with_regime = holdings_with_regime.sort_values(['date', 'composite_score_adjusted'], ascending=[True, False])
+    
+    # Select top N stocks based on adjusted composite score
+    print(f"   📊 Selecting top {config['universe']['top_n_stocks']} stocks per date...")
+    holdings_with_regime = holdings_with_regime.groupby('date').head(config['universe']['top_n_stocks']).reset_index(drop=True)
     
     print(f"   ✅ Regime-based factor weights applied")
     print(f"   📊 Regime distribution in holdings:")
@@ -917,18 +924,18 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
-portfolio_values.to_csv(results_dir / "19_tearsheet_portfolio_values.csv", index=False)
-daily_returns.to_csv(results_dir / "19_tearsheet_daily_returns.csv", index=False)
+portfolio_values.to_csv(results_dir / "02b_tearsheet_portfolio_values_factor_regime.csv", index=False)
+daily_returns.to_csv(results_dir / "02b_tearsheet_daily_returns_factor_regime.csv", index=False)
 
 # Save performance metrics
-with open(results_dir / "19_tearsheet_performance_metrics.txt", 'w') as f:
+with open(results_dir / "02b_tearsheet_performance_metrics_factor_regime.txt", 'w') as f:
     for metric, value in performance_metrics.items():
         f.write(f"{metric}: {value}\n")
 
 print(f"\n📁 Results saved to docs/")
-print(f"   - 19_tearsheet_portfolio_values.csv: {len(portfolio_values)} portfolio values")
-print(f"   - 19_tearsheet_daily_returns.csv: {len(daily_returns)} daily returns")
-print(f"   - 19_tearsheet_performance_metrics.txt: Performance metrics")
+print(f"   - 02b_tearsheet_portfolio_values_factor_regime.csv: {len(portfolio_values)} portfolio values")
+print(f"   - 02b_tearsheet_daily_returns_factor_regime.csv: {len(daily_returns)} daily returns")
+print(f"   - 02b_tearsheet_performance_metrics_factor_regime.txt: Performance metrics")
 
 # %% [markdown]
 # # EQUITY CURVE VISUALIZATION
@@ -1013,10 +1020,10 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Save the plot
     results_dir = Path("docs")
-    plt.savefig(results_dir / "19_equity_curve.png", dpi=300, bbox_inches='tight')
+    plt.savefig(results_dir / "02b_equity_curve_factor_regime.png", dpi=300, bbox_inches='tight')
     plt.show()
     
-    print(f"   - 19_equity_curve.png: Equity curve visualization saved")
+    print(f"   - 02b_equity_curve_factor_regime.png: Equity curve visualization saved")
     print(f"   📊 Strategy data points: {len(strategy_aligned)}")
     print(f"   📊 Benchmark data points: {len(benchmark_aligned)}")
     print(f"   📊 Common dates: {len(common_dates)}")
