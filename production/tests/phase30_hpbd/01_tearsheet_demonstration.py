@@ -26,6 +26,97 @@ sys.path.append('/home/raymond/Documents/Projects/factor-investing-public')
 from production.database.connection import DatabaseManager
 
 # %% [markdown]
+# # REGIME DETECTION COMPONENT
+
+# %%
+class RegimeDetector:
+    """
+    Advanced regime detection based on volatility and return thresholds with stability controls.
+    """
+    def __init__(self, lookback_period: int = 90, volatility_threshold: float = 0.75, 
+                 return_threshold: float = 0.25, bull_return_threshold: float = 0.75,
+                 min_regime_duration: int = 5):
+        self.lookback_period = lookback_period
+        self.volatility_threshold = volatility_threshold
+        self.return_threshold = return_threshold
+        self.bull_return_threshold = bull_return_threshold
+        self.min_regime_duration = min_regime_duration
+        print(f"✅ RegimeDetector initialized with thresholds:")
+        print(f"   - Lookback Period: {self.lookback_period} days")
+        print(f"   - Volatility Threshold: {self.volatility_threshold:.2%} (percentile)")
+        print(f"   - Return Threshold: {self.return_threshold:.2%} (percentile)")
+        print(f"   - Bull Return Threshold: {self.bull_return_threshold:.2%} (percentile)")
+        print(f"   - Min Regime Duration: {self.min_regime_duration} days")
+    
+    def detect_regime(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
+        """Detect market regime based on benchmark performance with stability controls."""
+        print("📊 Detecting market regime with stability controls...")
+        
+        # Calculate rolling volatility and returns
+        benchmark_data = benchmark_data.sort_values('date').copy()
+        benchmark_data['rolling_vol'] = benchmark_data['return'].rolling(self.lookback_period).std() * np.sqrt(252)
+        benchmark_data['rolling_return'] = benchmark_data['return'].rolling(self.lookback_period).mean() * 252
+        
+        # Define regime thresholds based on percentiles
+        vol_threshold = benchmark_data['rolling_vol'].quantile(self.volatility_threshold)
+        return_threshold = benchmark_data['rolling_return'].quantile(self.return_threshold)
+        bull_return_threshold = benchmark_data['rolling_return'].quantile(self.bull_return_threshold)
+        
+        # Initial regime classification
+        benchmark_data['regime'] = 'normal'
+        benchmark_data.loc[
+            (benchmark_data['rolling_vol'] > vol_threshold) & 
+            (benchmark_data['rolling_return'] < return_threshold), 'regime'
+        ] = 'stress'
+        benchmark_data.loc[
+            (benchmark_data['rolling_vol'] < vol_threshold) & 
+            (benchmark_data['rolling_return'] > bull_return_threshold), 'regime'
+        ] = 'bull'
+        
+        # Apply minimum regime duration filter to reduce volatility
+        print(f"   📊 Applying minimum regime duration filter ({self.min_regime_duration} days)...")
+        
+        # Forward fill regimes to ensure minimum duration
+        benchmark_data['regime_stable'] = benchmark_data['regime']
+        
+        # Use rolling window to smooth regime changes
+        for i in range(self.min_regime_duration, len(benchmark_data)):
+            # Check if we have enough consecutive days in the same regime
+            recent_regimes = benchmark_data['regime'].iloc[i-self.min_regime_duration+1:i+1]
+            if len(recent_regimes.unique()) == 1:
+                # Stable regime, keep it
+                benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = recent_regimes.iloc[0]
+            else:
+                # Unstable, keep previous stable regime
+                if i > 0:
+                    benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
+        
+        # Use stable regime as final regime
+        benchmark_data['regime'] = benchmark_data['regime_stable']
+        benchmark_data = benchmark_data.drop('regime_stable', axis=1)
+        
+        print(f"   ✅ Regime detection completed with stability controls")
+        print(f"   📊 Regime distribution:")
+        regime_counts = benchmark_data['regime'].value_counts()
+        for regime, count in regime_counts.items():
+            print(f"      {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
+        
+        # Calculate regime stability metrics
+        regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
+        print(f"   📊 Regime stability: {regime_changes} changes over {len(benchmark_data)} days")
+        
+        return benchmark_data
+    
+    def get_regime_allocation(self, regime: str) -> float:
+        """Get target allocation based on regime."""
+        regime_allocations = {
+            'normal': 1.0,    # Fully invested
+            'bull': 1.0,      # Fully invested
+            'stress': 0.6,    # 60% invested
+        }
+        return regime_allocations.get(regime, 1.0)
+
+# %% [markdown]
 # # CONFIGURATION
 
 # %%
@@ -42,6 +133,18 @@ CONFIG = {
     'rebalance_frequency': 'M',  # Monthly
     'transaction_cost_bps': 10,  # 10 basis points
     'initial_capital': 10_000_000_000,  # 10 billion VND
+    'regime_detection': {
+        'lookback_days': 90,  # 90 days lookback for regime detection
+        'volatility_threshold': 0.75,  # 75th percentile for high volatility
+        'return_threshold': 0.25,  # 25th percentile for low returns
+        'bull_return_threshold': 0.75,  # 75th percentile for high returns
+        'min_regime_duration': 5,  # Minimum days to stay in a regime
+    },
+    'factor_weights': {
+        'normal': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 1.0},
+        'stress': {'quality': 0.4, 'value': 0.3, 'momentum': 0.3, 'allocation': 0.6},
+        'bull': {'quality': 0.15, 'value': 0.35, 'momentum': 0.5, 'allocation': 1.0},
+    }
 }
 
 # %% [markdown]
@@ -118,15 +221,33 @@ ORDER BY date
 
 benchmark_data = pd.read_sql(benchmark_query, engine)
 benchmark_data['date'] = pd.to_datetime(benchmark_data['date']).dt.date
+benchmark_data['return'] = benchmark_data['close_price'].pct_change()
 print(f"✅ Benchmark data: {len(benchmark_data)} records")
+
+# %% [markdown]
+# # DETECT MARKET REGIME
+
+# %%
+# Initialize regime detector
+regime_detector = RegimeDetector(
+    lookback_period=CONFIG['regime_detection']['lookback_days'],
+    volatility_threshold=CONFIG['regime_detection']['volatility_threshold'],
+    return_threshold=CONFIG['regime_detection']['return_threshold'],
+    bull_return_threshold=CONFIG['regime_detection']['bull_return_threshold'],
+    min_regime_duration=CONFIG['regime_detection']['min_regime_duration']
+)
+
+# Detect market regime
+benchmark_data = regime_detector.detect_regime(benchmark_data)
+print(f"✅ Market regime detection completed")
 
 # %% [markdown]
 # # CALCULATE PORTFOLIO RETURNS
 
 # %%
-def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config):
-    """Calculate corrected portfolio returns with proper trading day filtering."""
-    print("📈 Calculating corrected portfolio returns...")
+def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config, regime_detector):
+    """Calculate corrected portfolio returns with regime-based allocation."""
+    print("📈 Calculating corrected portfolio returns with regime detection...")
     
     # Convert dates to datetime
     holdings_df['date'] = pd.to_datetime(holdings_df['date'])
@@ -159,6 +280,15 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
         if date_holdings.empty:
             continue
         
+        # Get current market regime
+        regime_info = benchmark_data[benchmark_data['date'] == date]
+        if not regime_info.empty:
+            current_regime = regime_info['regime'].iloc[0]
+            regime_allocation = regime_detector.get_regime_allocation(current_regime)
+        else:
+            current_regime = 'normal'
+            regime_allocation = 1.0
+        
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
             date_prices = price_matrix.loc[date]
@@ -171,7 +301,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
             else:
                 continue
         
-        # Calculate portfolio value
+        # Calculate portfolio value with regime-based allocation
         portfolio_value = 0
         valid_holdings = 0
         
@@ -180,7 +310,8 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
             if ticker in date_prices.index:
                 price = date_prices[ticker]
                 if pd.notna(price) and price > 0:
-                    position_size = current_capital / len(date_holdings)
+                    # Apply regime-based allocation
+                    position_size = (current_capital * regime_allocation) / len(date_holdings)
                     shares = position_size / price
                     portfolio_value += shares * price
                     valid_holdings += 1
@@ -191,7 +322,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
                 'portfolio_value': portfolio_value,
                 'capital': current_capital,
                 'valid_holdings': valid_holdings,
-                'total_holdings': len(date_holdings)
+                'total_holdings': len(date_holdings),
+                'regime': current_regime,
+                'regime_allocation': regime_allocation
             })
             
             # Calculate daily returns for the period until next rebalancing
@@ -239,7 +372,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
                                     daily_returns.append({
                                         'date': daily_date,
                                         'portfolio_return': portfolio_return,
-                                        'rebalance_date': date
+                                        'rebalance_date': date,
+                                        'regime': current_regime,
+                                        'regime_allocation': regime_allocation
                                     })
             
             # Update capital for next period
@@ -250,12 +385,13 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
     
     print(f"   ✅ Portfolio values: {len(portfolio_df)} records")
     print(f"   ✅ Daily returns: {len(daily_returns_df)} records")
+    print(f"   📊 Regime-based allocation applied")
     
     return portfolio_df, daily_returns_df
 
 # %%
 # Calculate returns
-portfolio_values, daily_returns = calculate_corrected_returns(holdings_df, price_data, benchmark_data, CONFIG)
+portfolio_values, daily_returns = calculate_corrected_returns(holdings_df, price_data, benchmark_data, CONFIG, regime_detector)
 
 # %% [markdown]
 # # CALCULATE PERFORMANCE METRICS
@@ -605,8 +741,10 @@ print("="*80)
 strategy_returns = daily_returns.set_index('date')['portfolio_return']
 benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
 
-# Create empty diagnostics DataFrame (since we don't have regime data in this version)
-diagnostics = pd.DataFrame()
+# Create diagnostics DataFrame with regime information
+diagnostics = portfolio_values[['date', 'regime', 'regime_allocation', 'portfolio_size']].copy()
+diagnostics['portfolio_size'] = diagnostics['valid_holdings']
+diagnostics = diagnostics.set_index('date')
 
 # Generate the comprehensive tearsheet
 generate_comprehensive_tearsheet(
