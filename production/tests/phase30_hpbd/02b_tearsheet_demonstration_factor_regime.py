@@ -279,12 +279,12 @@ class DynamicRegimeDetector:
         """Get target allocation based on dynamic regime system."""
         regime_allocations = {
             'bull': 1.0,       # 100% invested during bull periods
-            'growth': 0.9,     # 90% invested during growth periods
-            'sideways': 0.8,   # 80% invested during sideways periods
-            'correction': 0.5, # 50% invested during correction periods
-            'crisis': 0.3      # 30% invested during crisis periods
+            'growth': 0.8,     # 80% invested during growth periods
+            'sideways': 0.6,   # 60% invested during sideways periods
+            'correction': 0.4, # 40% invested during correction periods
+            'crisis': 0.2      # 20% invested during crisis periods
         }
-        return regime_allocations.get(regime, 0.8)
+        return regime_allocations.get(regime, 0.6)
 
 # %% [markdown]
 # # CONFIGURATION
@@ -309,10 +309,10 @@ CONFIG = {
     },
     'factor_weights': {
         'bull': {'quality': 0.15, 'value': 0.25, 'momentum': 0.6, 'allocation': 1.0},
-        'growth': {'quality': 0.20, 'value': 0.30, 'momentum': 0.5, 'allocation': 0.9},
-        'sideways': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
-        'correction': {'quality': 0.4, 'value': 0.4, 'momentum': 0.2, 'allocation': 0.5},
-        'crisis': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.3},
+        'growth': {'quality': 0.20, 'value': 0.30, 'momentum': 0.5, 'allocation': 0.8},
+        'sideways': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.6},
+        'correction': {'quality': 0.4, 'value': 0.4, 'momentum': 0.2, 'allocation': 0.4},
+        'crisis': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.2},
     }
 }
 
@@ -838,8 +838,14 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     ax3 = fig.add_subplot(gs[2, 0])
     strat_annual = aligned_strategy_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
     bench_annual = aligned_benchmark_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
-    pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax3, color=['#16A085', '#34495E'])
-    ax3.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')
+    
+    # Create DataFrame and plot
+    annual_df = pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual})
+    annual_df.plot(kind='bar', ax=ax3, color=['#16A085', '#34495E'])
+    
+    # Set tick labels - use the actual index values
+    ax3.set_xticklabels([d.strftime('%Y') for d in annual_df.index], rotation=45, ha='right')
+    
     ax3.set_title('Annual Returns', fontweight='bold')
     ax3.grid(True, axis='y', linestyle='--', alpha=0.5)
 

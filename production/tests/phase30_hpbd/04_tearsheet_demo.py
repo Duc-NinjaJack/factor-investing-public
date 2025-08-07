@@ -1,7 +1,9 @@
 # %% [markdown]
-# # QVM ENGINE V3J TEARSHEET DEMONSTRATION
-# 
+# # QVM ENGINE V3J TEARSHEET DEMONSTRATION - FIXED PORTFOLIO SIZE
+#
 # This notebook demonstrates the QVM (Quality, Value, Momentum) factor investing strategy with comprehensive performance analysis and visualization.
+#
+# **Key Fix:** Portfolio size is now constrained to exactly 20 stocks per rebalancing date.
 
 # %% [markdown]
 # # IMPORTS AND SETUP
@@ -29,111 +31,57 @@ from production.database.connection import DatabaseManager
 # # REGIME DETECTION COMPONENT
 
 # %%
-class EnhancedRegimeDetector:
+class RegimeDetector:
     """
-    Enhanced 5-regime detection system using absolute thresholds for stability.
-    Regimes: BULL, GROWTH, SIDEWAYS, CORRECTION, CRISIS
+    Advanced regime detection based on volatility and return thresholds with stability controls.
     """
-    def __init__(self, lookback_period: int = 90, min_regime_duration: int = 30):
+    def __init__(self, lookback_period: int = 90, volatility_threshold: float = 0.75, 
+                 return_threshold: float = 0.25, bull_return_threshold: float = 0.75,
+                 min_regime_duration: int = 5):
         self.lookback_period = lookback_period
+        self.volatility_threshold = volatility_threshold
+        self.return_threshold = return_threshold
+        self.bull_return_threshold = bull_return_threshold
         self.min_regime_duration = min_regime_duration
-        
-        # Absolute thresholds (more stable than percentiles) - Made more reasonable
-        self.volatility_thresholds = {
-            'low': 0.20,      # < 20% annualized volatility
-            'medium': 0.30,   # 20-30% annualized volatility  
-            'high': 0.40      # > 40% annualized volatility
-        }
-        
-        self.return_thresholds = {
-            'strong_positive': 0.15,   # > 15% annualized return
-            'moderate_positive': 0.05,  # 5-15% annualized return
-            'moderate_negative': -0.05, # -5% to 5% annualized return
-            'strong_negative': -0.15    # < -15% annualized return
-        }
-        
-        self.drawdown_thresholds = {
-            'mild': 0.10,     # < 10% drawdown
-            'moderate': 0.20,  # 10-20% drawdown
-            'severe': 0.30     # > 30% drawdown
-        }
-        
-        print(f"✅ EnhancedRegimeDetector initialized with 5-regime system:")
+        print(f"✅ RegimeDetector initialized with thresholds:")
         print(f"   - Lookback Period: {self.lookback_period} days")
+        print(f"   - Volatility Threshold: {self.volatility_threshold:.2%} (percentile)")
+        print(f"   - Return Threshold: {self.return_threshold:.2%} (percentile)")
+        print(f"   - Bull Return Threshold: {self.bull_return_threshold:.2%} (percentile)")
         print(f"   - Min Regime Duration: {self.min_regime_duration} days")
-        print(f"   - Volatility Thresholds: Low(<15%), Medium(15-25%), High(>35%)")
-        print(f"   - Return Thresholds: Strong+(>20%), Mod+(8-20%), Mod-(-8% to 8%), Strong-(<-20%)")
-        print(f"   - Drawdown Thresholds: Mild(<10%), Moderate(10-20%), Severe(>30%)")
-    
-    def classify_regime(self, rolling_return: float, rolling_vol: float, current_drawdown: float) -> str:
-        """
-        Enhanced 5-regime classification:
-        1. BULL: Strong positive returns, low volatility
-        2. GROWTH: Moderate positive returns, normal volatility  
-        3. SIDEWAYS: Low returns, normal volatility
-        4. CORRECTION: Moderate negative returns, elevated volatility
-        5. CRISIS: Strong negative returns, high volatility
-        """
-        # More sensible classification logic - prioritize return direction
-        if rolling_return < self.return_thresholds['strong_negative'] and rolling_vol > self.volatility_thresholds['high']:
-            return 'crisis'
-        elif rolling_return < self.return_thresholds['moderate_negative'] and rolling_vol > self.volatility_thresholds['medium']:
-            return 'correction'
-        elif rolling_return > self.return_thresholds['strong_positive'] and rolling_vol < self.volatility_thresholds['low']:
-            return 'bull'
-        elif rolling_return > self.return_thresholds['moderate_positive'] and rolling_vol < self.volatility_thresholds['medium']:
-            return 'growth'
-        elif abs(rolling_return) < abs(self.return_thresholds['moderate_negative']):
-            return 'sideways'
-        else:
-            # Fallback classification based on return direction
-            if rolling_return > 0:
-                return 'growth'
-            else:
-                return 'correction'
     
     def detect_regime(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
-        """Detect market regime using enhanced 5-regime classification with stability controls."""
-        print("📊 Detecting market regime with enhanced 5-regime system...")
+        """Detect market regime based on benchmark performance with stability controls."""
+        print("📊 Detecting market regime with stability controls...")
         
         # Calculate rolling volatility and returns
         benchmark_data = benchmark_data.sort_values('date').copy()
         benchmark_data['rolling_vol'] = benchmark_data['return'].rolling(self.lookback_period).std() * np.sqrt(252)
         benchmark_data['rolling_return'] = benchmark_data['return'].rolling(self.lookback_period).mean() * 252
         
-        # Calculate drawdown
-        benchmark_data['cumulative_return'] = (1 + benchmark_data['return']).cumprod()
-        benchmark_data['running_max'] = benchmark_data['cumulative_return'].expanding().max()
-        benchmark_data['drawdown'] = (benchmark_data['cumulative_return'] - benchmark_data['running_max']) / benchmark_data['running_max']
+        # Define regime thresholds based on percentiles
+        vol_threshold = benchmark_data['rolling_vol'].quantile(self.volatility_threshold)
+        return_threshold = benchmark_data['rolling_return'].quantile(self.return_threshold)
+        bull_return_threshold = benchmark_data['rolling_return'].quantile(self.bull_return_threshold)
         
-        # Initial regime classification using enhanced logic
-        print("   📊 Applying enhanced 5-regime classification...")
-        benchmark_data['regime'] = 'sideways'  # default
+        # Initial regime classification
+        benchmark_data['regime'] = 'normal'
+        benchmark_data.loc[
+            (benchmark_data['rolling_vol'] > vol_threshold) & 
+            (benchmark_data['rolling_return'] < return_threshold), 'regime'
+        ] = 'stress'
+        benchmark_data.loc[
+            (benchmark_data['rolling_vol'] < vol_threshold) & 
+            (benchmark_data['rolling_return'] > bull_return_threshold), 'regime'
+        ] = 'bull'
         
-        # Debug: Show some sample values
-        print(f"   📊 Sample rolling values (first 5 after lookback):")
-        for i in range(self.lookback_period, min(self.lookback_period + 5, len(benchmark_data))):
-            rolling_return = benchmark_data.iloc[i]['rolling_return']
-            rolling_vol = benchmark_data.iloc[i]['rolling_vol']
-            current_drawdown = benchmark_data.iloc[i]['drawdown']
-            print(f"      Date {benchmark_data.iloc[i]['date']}: Return={rolling_return:.3f}, Vol={rolling_vol:.3f}, DD={current_drawdown:.3f}")
-        
-        for i in range(self.lookback_period, len(benchmark_data)):
-            rolling_return = benchmark_data.iloc[i]['rolling_return']
-            rolling_vol = benchmark_data.iloc[i]['rolling_vol']
-            current_drawdown = benchmark_data.iloc[i]['drawdown']
-            
-            # Classify regime using enhanced logic
-            regime = self.classify_regime(rolling_return, rolling_vol, current_drawdown)
-            benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime')] = regime
-        
-        # Apply minimum regime duration filter for stability
+        # Apply minimum regime duration filter to reduce volatility and make periods more contiguous
         print(f"   📊 Applying minimum regime duration filter ({self.min_regime_duration} days)...")
         
         # Forward fill regimes to ensure minimum duration
         benchmark_data['regime_stable'] = benchmark_data['regime']
         
-        # Use rolling window to smooth regime changes
+        # Use rolling window to smooth regime changes and make periods more contiguous
         for i in range(self.min_regime_duration, len(benchmark_data)):
             # Check if we have enough consecutive days in the same regime
             recent_regimes = benchmark_data['regime'].iloc[i-self.min_regime_duration+1:i+1]
@@ -145,13 +93,13 @@ class EnhancedRegimeDetector:
                 if i > 0:
                     benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
         
-        # Additional smoothing: eliminate isolated regime changes
+        # Additional smoothing: eliminate isolated regime changes using forward/backward fill
         print(f"   📊 Applying additional smoothing to eliminate isolated regime changes...")
         
         # Create a copy for smoothing
         benchmark_data['regime_smooth'] = benchmark_data['regime_stable'].copy()
         
-        # Find isolated regime changes (regimes that only last 1-3 days)
+        # Find isolated regime changes (regimes that only last 1-2 days)
         for i in range(1, len(benchmark_data) - 1):
             current_regime = benchmark_data.iloc[i]['regime_stable']
             prev_regime = benchmark_data.iloc[i-1]['regime_stable']
@@ -159,7 +107,8 @@ class EnhancedRegimeDetector:
             
             # If current regime is isolated (different from both previous and next)
             if current_regime != prev_regime and current_regime != next_regime:
-                # Check if it's a very short regime (1-3 days)
+                # Check if it's a very short regime (1-2 days)
+                # Look forward and backward to see how long this regime lasts
                 forward_count = 0
                 backward_count = 0
                 
@@ -177,12 +126,12 @@ class EnhancedRegimeDetector:
                     else:
                         break
                 
-                # If total regime duration is very short (<= 5 days), smooth it
+                # If total regime duration is very short (<= 3 days), smooth it
                 total_duration = forward_count + backward_count + 1
-                if total_duration <= 5:
+                if total_duration <= 3:
                     # Use the regime that appears more frequently in the surrounding window
-                    window_start = max(0, i-10)
-                    window_end = min(len(benchmark_data), i+11)
+                    window_start = max(0, i-5)
+                    window_end = min(len(benchmark_data), i+6)
                     window_regimes = benchmark_data.iloc[window_start:window_end]['regime_stable']
                     
                     # Count regimes in the window
@@ -198,34 +147,13 @@ class EnhancedRegimeDetector:
         
         # Use smoothed regime as final regime
         benchmark_data['regime'] = benchmark_data['regime_smooth']
-        benchmark_data = benchmark_data.drop(['regime_stable', 'regime_smooth', 'cumulative_return', 'running_max'], axis=1)
+        benchmark_data = benchmark_data.drop(['regime_stable', 'regime_smooth'], axis=1)
         
-        print(f"   ✅ Enhanced 5-regime detection completed with stability controls")
+        print(f"   ✅ Regime detection completed with stability controls")
         print(f"   📊 Regime distribution:")
         regime_counts = benchmark_data['regime'].value_counts()
         for regime, count in regime_counts.items():
             print(f"      {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
-        
-        # Debug: Show sample of regime transitions
-        print(f"   🔍 Sample regime transitions (first 20 after lookback):")
-        sample_regimes = benchmark_data[benchmark_data['date'] >= benchmark_data.iloc[self.lookback_period]['date']].head(20)
-        for _, row in sample_regimes.iterrows():
-            print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
-        
-        # Debug: Show specific periods of interest
-        print(f"   🔍 2018 Period Analysis:")
-        period_2018 = benchmark_data[(benchmark_data['date'] >= pd.to_datetime('2018-01-01').date()) & 
-                                   (benchmark_data['date'] <= pd.to_datetime('2018-12-31').date())]
-        if not period_2018.empty:
-            for _, row in period_2018.head(10).iterrows():
-                print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
-        
-        print(f"   🔍 2022 Period Analysis:")
-        period_2022 = benchmark_data[(benchmark_data['date'] >= pd.to_datetime('2022-01-01').date()) & 
-                                   (benchmark_data['date'] <= pd.to_datetime('2022-12-31').date())]
-        if not period_2022.empty:
-            for _, row in period_2022.head(10).iterrows():
-                print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
         
         # Calculate regime stability metrics
         regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
@@ -234,13 +162,11 @@ class EnhancedRegimeDetector:
         return benchmark_data
     
     def get_regime_allocation(self, regime: str) -> float:
-        """Get target allocation based on enhanced 5-regime system."""
+        """Get target allocation based on regime."""
         regime_allocations = {
-            'bull': 1.0,       # 100% invested during bull periods
-            'growth': 0.9,     # 90% invested during growth periods
-            'sideways': 0.8,   # 80% invested during sideways periods
-            'correction': 0.5, # 50% invested during correction periods
-            'crisis': 0.3      # 30% invested during crisis periods
+            'normal': 0.8,    # 80% invested during normal periods
+            'bull': 1.0,      # 100% invested during bull periods
+            'stress': 0.4,    # 40% invested during stress periods
         }
         return regime_allocations.get(regime, 0.8)
 
@@ -263,14 +189,16 @@ CONFIG = {
     'initial_capital': 10_000_000_000,  # 10 billion VND
     'regime_detection': {
         'lookback_days': 90,  # 90 days lookback for regime detection
-        'min_regime_duration': 30,  # 30 days minimum for stable regimes
+        'volatility_threshold': 0.85,  # 85th percentile for high volatility (more conservative)
+        'return_threshold': 0.15,  # 15th percentile for low returns (more conservative)
+        'bull_return_threshold': 0.75,  # 75th percentile for high returns
+        'min_regime_duration': 30,  # Increased to 30 days for more stable regimes
+        'stress_drawdown_threshold': 0.20,  # 20% drawdown threshold for stress classification
     },
     'factor_weights': {
+        'normal': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
+        'stress': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.4},
         'bull': {'quality': 0.15, 'value': 0.25, 'momentum': 0.6, 'allocation': 1.0},
-        'growth': {'quality': 0.20, 'value': 0.30, 'momentum': 0.5, 'allocation': 0.9},
-        'sideways': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
-        'correction': {'quality': 0.4, 'value': 0.4, 'momentum': 0.2, 'allocation': 0.5},
-        'crisis': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.3},
     }
 }
 
@@ -355,21 +283,18 @@ print(f"✅ Benchmark data: {len(benchmark_data)} records")
 # # DETECT MARKET REGIME
 
 # %%
-# Initialize enhanced regime detector
-regime_detector = EnhancedRegimeDetector(
+# Initialize regime detector
+regime_detector = RegimeDetector(
     lookback_period=CONFIG['regime_detection']['lookback_days'],
+    volatility_threshold=CONFIG['regime_detection']['volatility_threshold'],
+    return_threshold=CONFIG['regime_detection']['return_threshold'],
+    bull_return_threshold=CONFIG['regime_detection']['bull_return_threshold'],
     min_regime_duration=CONFIG['regime_detection']['min_regime_duration']
 )
 
 # Detect market regime
 benchmark_data = regime_detector.detect_regime(benchmark_data)
 print(f"✅ Market regime detection completed")
-
-# Debug: Show regime distribution
-print("\n🔍 DEBUG: Regime distribution in benchmark data:")
-regime_counts = benchmark_data['regime'].value_counts()
-for regime, count in regime_counts.items():
-    print(f"   {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
 
 # %% [markdown]
 # # CALCULATE PORTFOLIO RETURNS
@@ -415,14 +340,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
         if not regime_info.empty:
             current_regime = regime_info['regime'].iloc[0]
             regime_allocation = regime_detector.get_regime_allocation(current_regime)
-            # Debug: Show regime info for first few dates
-            if i < 5:
-                print(f"   🔍 Date {date}: Regime={current_regime}, Allocation={regime_allocation:.2f}")
         else:
-            current_regime = 'sideways'  # Default for 5-regime system
+            current_regime = 'normal'
             regime_allocation = 0.8
-            if i < 5:
-                print(f"   🔍 Date {date}: No regime found, using default={current_regime}, Allocation={regime_allocation:.2f}")
         
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
@@ -497,9 +417,6 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                 # Equal weight portfolio return
                                 portfolio_return = portfolio_daily_returns.mean()
                                 
-                                # Apply regime-based allocation to the daily return
-                                portfolio_return = portfolio_return * regime_allocation
-                                
                                 # Apply transaction costs on rebalancing day
                                 if daily_date == date:
                                     transaction_cost = config['transaction_cost_bps'] / 10000
@@ -539,8 +456,8 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
         how='left'
     )
     
-    # Fill missing regimes with 'sideways' (default for 5-regime system)
-    holdings_with_regime['regime'] = holdings_with_regime['regime'].fillna('sideways')
+    # Fill missing regimes with 'normal'
+    holdings_with_regime['regime'] = holdings_with_regime['regime'].fillna('normal')
     
     # Apply regime-based factor weights
     holdings_with_regime['composite_score_adjusted'] = 0.0
@@ -558,9 +475,9 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
     # Sort by adjusted composite score within each date
     holdings_with_regime = holdings_with_regime.sort_values(['date', 'composite_score_adjusted'], ascending=[True, False])
     
-    # Select top N stocks based on adjusted composite score
-    print(f"   📊 Selecting top {config['universe']['top_n_stocks']} stocks per date...")
-    holdings_with_regime = holdings_with_regime.groupby('date').head(config['universe']['top_n_stocks']).reset_index(drop=True)
+    # Select top N stocks based on adjusted composite score to fix portfolio size
+    print(f"   📊 Selecting top {config['universe']['target_portfolio_size']} stocks per date...")
+    holdings_with_regime = holdings_with_regime.groupby('date').head(config['universe']['target_portfolio_size']).reset_index(drop=True)
     
     print(f"   ✅ Regime-based factor weights applied")
     print(f"   📊 Regime distribution in holdings:")
@@ -568,11 +485,12 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
     for regime, count in regime_counts.items():
         print(f"      {regime}: {count} holdings ({count/len(holdings_with_regime)*100:.1f}%)")
     
-    # Debug: Show sample of holdings with regimes
-    print(f"   🔍 Sample holdings with regimes (first 10):")
-    sample_holdings = holdings_with_regime[['date', 'ticker', 'regime', 'composite_score_adjusted']].head(10)
-    for _, row in sample_holdings.iterrows():
-        print(f"      {row['date']} - {row['ticker']}: {row['regime']} (score: {row['composite_score_adjusted']:.3f})")
+    # Verify portfolio size is fixed
+    portfolio_sizes = holdings_with_regime.groupby('date').size()
+    print(f"   📊 Portfolio size verification:")
+    print(f"      Min portfolio size: {portfolio_sizes.min()}")
+    print(f"      Max portfolio size: {portfolio_sizes.max()}")
+    print(f"      Target portfolio size: {config['universe']['target_portfolio_size']}")
     
     return holdings_with_regime
 
@@ -721,12 +639,15 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
         # Get regime data aligned with the returns
         regime_data = diagnostics.reindex(aligned_strategy_returns.index, method='ffill')
         
-        # Shade bull periods (green)
+        # Shade bull periods (green with low alpha)
         bull_periods = regime_data[regime_data['regime'] == 'bull']
         if not bull_periods.empty:
+            # Simple shading for bull periods
             for i, date in enumerate(bull_periods.index):
                 if i == 0 or (date - bull_periods.index[i-1]).days > 1:
+                    # Start of a new bull period
                     start_date = date
+                    # Find the end of this bull period
                     end_date = date
                     for j in range(i+1, len(bull_periods.index)):
                         if (bull_periods.index[j] - bull_periods.index[j-1]).days == 1:
@@ -735,47 +656,22 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
                             break
                     ax1.axvspan(start_date, end_date, alpha=0.1, color='green', label='Bull Period' if i == 0 else "")
         
-        # Shade growth periods (orange)
-        growth_periods = regime_data[regime_data['regime'] == 'growth']
-        if not growth_periods.empty:
-            for i, date in enumerate(growth_periods.index):
-                if i == 0 or (date - growth_periods.index[i-1]).days > 1:
+        # Shade stress periods (red with low alpha)
+        stress_periods = regime_data[regime_data['regime'] == 'stress']
+        if not stress_periods.empty:
+            # Simple shading for stress periods
+            for i, date in enumerate(stress_periods.index):
+                if i == 0 or (date - stress_periods.index[i-1]).days > 1:
+                    # Start of a new stress period
                     start_date = date
+                    # Find the end of this stress period
                     end_date = date
-                    for j in range(i+1, len(growth_periods.index)):
-                        if (growth_periods.index[j] - growth_periods.index[j-1]).days == 1:
-                            end_date = growth_periods.index[j]
+                    for j in range(i+1, len(stress_periods.index)):
+                        if (stress_periods.index[j] - stress_periods.index[j-1]).days == 1:
+                            end_date = stress_periods.index[j]
                         else:
                             break
-                    ax1.axvspan(start_date, end_date, alpha=0.1, color='orange', label='Growth Period' if i == 0 else "")
-        
-        # Shade correction periods (red)
-        correction_periods = regime_data[regime_data['regime'] == 'correction']
-        if not correction_periods.empty:
-            for i, date in enumerate(correction_periods.index):
-                if i == 0 or (date - correction_periods.index[i-1]).days > 1:
-                    start_date = date
-                    end_date = date
-                    for j in range(i+1, len(correction_periods.index)):
-                        if (correction_periods.index[j] - correction_periods.index[j-1]).days == 1:
-                            end_date = correction_periods.index[j]
-                        else:
-                            break
-                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Correction Period' if i == 0 else "")
-        
-        # Shade crisis periods (red)
-        crisis_periods = regime_data[regime_data['regime'] == 'crisis']
-        if not crisis_periods.empty:
-            for i, date in enumerate(crisis_periods.index):
-                if i == 0 or (date - crisis_periods.index[i-1]).days > 1:
-                    start_date = date
-                    end_date = date
-                    for j in range(i+1, len(crisis_periods.index)):
-                        if (crisis_periods.index[j] - crisis_periods.index[j-1]).days == 1:
-                            end_date = crisis_periods.index[j]
-                        else:
-                            break
-                    ax1.axvspan(start_date, end_date, alpha=0.15, color='red', label='Crisis Period' if i == 0 else "")
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Stress Period' if i == 0 else "")
     
     ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
     ax1.set_ylabel('Growth of 1 VND')
@@ -814,16 +710,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     ax5 = fig.add_subplot(gs[3, 0])
     if not diagnostics.empty and 'regime' in diagnostics.columns:
         regime_counts = diagnostics['regime'].value_counts()
-        # Define consistent colors: bull=green, growth=orange, correction=red, crisis=red, sideways=yellow
-        color_map = {
-            'bull': 'green',
-            'growth': 'orange', 
-            'correction': 'red',
-            'crisis': 'red',
-            'sideways': 'yellow'
-        }
-        colors = [color_map.get(regime, 'gray') for regime in regime_counts.index]
-        regime_counts.plot(kind='bar', ax=ax5, color=colors)
+        regime_counts.plot(kind='bar', ax=ax5, color=['#3498DB', '#E74C3C', '#F39C12', '#9B59B6'])
         ax5.set_title('Regime Distribution', fontweight='bold')
         ax5.set_ylabel('Number of Rebalances')
         ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
@@ -889,7 +776,7 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 
 # %%
 # Dynamic filename generation
-def get_output_filenames(prefix="02a", suffix="5_regime"):
+def get_output_filenames(prefix="04", suffix="fixed_portfolio"):
     """Generate unique filenames based on current file."""
     return {
         'portfolio_values': f"{prefix}_tearsheet_portfolio_values_{suffix}.csv",
@@ -903,7 +790,7 @@ results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
 # Get dynamic filenames
-filenames = get_output_filenames("02a", "5_regime")
+filenames = get_output_filenames("04", "fixed_portfolio")
 
 portfolio_values.to_csv(results_dir / filenames['portfolio_values'], index=False)
 daily_returns.to_csv(results_dir / filenames['daily_returns'], index=False)
@@ -1001,7 +888,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Save the plot
     results_dir = Path("docs")
-    filenames = get_output_filenames("02a", "5_regime")
+    filenames = get_output_filenames("04", "fixed_portfolio")
     plt.savefig(results_dir / filenames['equity_curve'], dpi=300, bbox_inches='tight')
     plt.show()
     

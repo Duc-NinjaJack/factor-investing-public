@@ -680,6 +680,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     strat_annual = aligned_strategy_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
     bench_annual = aligned_benchmark_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
     pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax3, color=['#16A085', '#34495E'])
+    ax3.set_xticks(range(len(strat_annual)))
     ax3.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')
     ax3.set_title('Annual Returns', fontweight='bold')
     ax3.grid(True, axis='y', linestyle='--', alpha=0.5)
