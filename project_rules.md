@@ -447,6 +447,21 @@ def robust_function(data: pd.DataFrame) -> pd.DataFrame:
 - **Lazy evaluation** for expensive computations
 - **Parallel processing** for independent operations
 
+### **Strategy Performance Analysis**
+- **Regime Detection Validation**: Always validate regime detection accuracy during market stress periods
+- **Factor Breakdown Analysis**: Monitor factor performance during market crashes to identify factor correlation issues
+- **Momentum Trap Prevention**: Implement safeguards against momentum factor breakdown during market stress
+- **Transaction Cost Impact**: Track cumulative transaction costs and their impact on strategy performance
+- **Equal Weighting Risks**: Consider risk-adjusted position sizing instead of equal weighting for better risk management
+
+### **Historical Performance Lessons (2022 Analysis)**
+- **Momentum Factor Risk**: The momentum factor can completely fail during market crashes (2022: -21% monthly returns)
+- **Regime Detection Lag**: Standard regime detection may be too slow to react to rapid market changes
+- **Factor Correlation**: All factors (Quality, Value, Momentum) can become highly correlated during stress periods
+- **Equal Weighting Vulnerability**: 5% equal weighting provides no risk management during market crashes
+- **Transaction Cost Drag**: 30 bps rebalancing costs compound significantly during high-frequency rebalancing
+- **Market vs Strategy Mismatch**: Strategy can underperform market by 14%+ per month during stress periods
+
 ---
 
 ## 🔒 Security and Data Protection

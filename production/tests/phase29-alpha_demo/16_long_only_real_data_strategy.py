@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
-"""
-QVM Engine v3j Long-Only Real Data Strategy
-==========================================
 
-This strategy uses REAL data with PROPER long-only returns.
-"""
+# %% [markdown]
+# # QVM Engine v3j Long-Only Real Data Strategy with Enhanced Regime Detection
+# 
+# This strategy uses REAL data with improved regime-adjusted QVM factor integration.
+# 
+# ## Key Features
+# - Long-only strategy with 20 stocks and dynamic position sizing
+# - Real price data from 2016-2025
+# - Enhanced regime detection with stability controls (30-day lookback, 5-day minimum duration)
+# - Dynamic factor weighting and allocation based on market regime:
+#   * Normal: Equal weighting (33% Q + 33% V + 34% M) with 100% allocation
+#   * Stress: Quality-focused (40% Q + 30% V + 30% M) with 60% allocation (defensive - sell across all positions)
+#   * Bull: Momentum-focused (15% Q + 35% V + 50% M) with 100% allocation
+# - Monthly rebalancing with transaction costs
+# - Comprehensive performance analysis and visualization
 
+# %% [markdown]
+# # IMPORTS AND SETUP
+
+# %%
 import sys
 import pandas as pd
 import numpy as np
@@ -28,22 +42,60 @@ if str(project_root) not in sys.path:
 
 from production.database.connection import get_database_manager
 
+print("✅ Libraries imported and project path configured")
+
+# %% [markdown]
+# # STRATEGY CONFIGURATION
+
+# %%
 # LONG-ONLY REAL DATA STRATEGY CONFIGURATION
 QVM_CONFIG = {
-    "strategy_name": "QVM_Engine_v3j_Long_Only_Real_Data",
-    "backtest_start_date": "2020-01-01",
-    "backtest_end_date": "2023-12-31",
-    "rebalance_frequency": "M",
-    "transaction_cost_bps": 30,
+    "strategy_name": "QVM_Engine_v3j_Long_Only_Real_Data_Regime_Adjusted_v2",
+    "backtest_start_date": "2016-01-01",
+    "backtest_end_date": "2025-12-31",  # Extended to include 2024-2025 data
+    "rebalance_frequency": "M",  # Monthly rebalancing
+    "transaction_cost_bps": 30,  # 30 basis points transaction costs
     "universe": {
-        "lookback_days": 63,
-        "top_n_stocks": 40,
-        "max_position_size": 0.05,
-        "target_portfolio_size": 20,
+        "lookback_days": 63,  # ~3 months for momentum calculation
+        "top_n_stocks": 200,  # Top 200 stocks by liquidity
+        "target_portfolio_size": 20,  # Equal-weighted portfolio of 20 stocks
     },
-    "strategy_type": "long_only",
+    "regime_detection": {
+        "lookback_days": 30,  # Shorter regime detection window (30 days)
+        "volatility_threshold": 0.75,  # 75th percentile for high volatility (conservative)
+        "return_threshold": 0.25,  # 25th percentile for low returns (conservative)
+        "bull_return_threshold": 0.75,  # 75th percentile for high returns (bull regime)
+        "min_regime_duration": 5,  # Minimum days to stay in a regime (reduce volatility)
+    },
+    "factor_weights": {
+        "normal": {"quality": 0.33, "value": 0.33, "momentum": 0.34},  # Equal weighting
+        "stress": {"quality": 0.4, "value": 0.3, "momentum": 0.3, "allocation": 0.6},  # 60% allocation, quality-focused
+        "bull": {"quality": 0.15, "value": 0.35, "momentum": 0.5, "allocation": 1.0},  # Reduce quality, increase momentum
+    },
+    "strategy_type": "long_only_regime_adjusted_v2",
 }
 
+print("📋 Strategy Configuration:")
+for key, value in QVM_CONFIG.items():
+    if key == "universe":
+        print(f"  {key}:")
+        for subkey, subvalue in value.items():
+            print(f"    {subkey}: {subvalue}")
+    elif key == "regime_detection":
+        print(f"  {key}:")
+        for subkey, subvalue in value.items():
+            print(f"    {subkey}: {subvalue}")
+    elif key == "factor_weights":
+        print(f"  {key}:")
+        for regime, weights in value.items():
+            print(f"    {regime}: {weights}")
+    else:
+        print(f"  {key}: {value}")
+
+# %% [markdown]
+# # DATA LOADING FUNCTIONS
+
+# %%
 def create_db_connection():
     """Create database connection."""
     try:
@@ -92,13 +144,16 @@ def load_real_price_data(db_engine, start_date, end_date):
         return pd.DataFrame()
 
 def load_real_factor_scores(db_engine, start_date, end_date):
-    """Load REAL factor scores."""
+    """Load REAL factor scores including all QVM components."""
     print(f"📊 Loading REAL factor scores from {start_date} to {end_date}...")
     
     query = f"""
     SELECT 
         date,
         ticker,
+        Quality_Composite,
+        Value_Composite,
+        Momentum_Composite,
         QVM_Composite
     FROM factor_scores_qvm
     WHERE date >= '{start_date}' AND date <= '{end_date}'
@@ -109,6 +164,8 @@ def load_real_factor_scores(db_engine, start_date, end_date):
         data = pd.read_sql(query, db_engine)
         data['date'] = pd.to_datetime(data['date'])
         print(f"   ✅ Loaded {len(data):,} factor score records")
+        print(f"   📈 Date range: {data['date'].min()} to {data['date'].max()}")
+        print(f"   🏢 Unique tickers: {data['ticker'].nunique()}")
         return data
         
     except Exception as e:
@@ -143,13 +200,145 @@ def load_real_benchmark_data(db_engine, start_date, end_date):
         print(f"   ❌ Failed to load benchmark data: {e}")
         return pd.DataFrame()
 
+print("✅ Data loading functions defined")
+
+# %% [markdown]
+# # REGIME DETECTION AND FACTOR INTEGRATION
+
+# %%
+def detect_market_regime(benchmark_data, config):
+    """Detect market regime based on benchmark performance with stability controls."""
+    print("📊 Detecting market regime with stability controls...")
+    
+    lookback_days = config['regime_detection']['lookback_days']
+    vol_threshold_pct = config['regime_detection']['volatility_threshold']
+    return_threshold_pct = config['regime_detection']['return_threshold']
+    bull_return_threshold_pct = config['regime_detection']['bull_return_threshold']
+    min_regime_duration = config['regime_detection']['min_regime_duration']
+    
+    # Calculate rolling volatility and returns
+    benchmark_data = benchmark_data.sort_values('date')
+    benchmark_data['rolling_vol'] = benchmark_data['return'].rolling(lookback_days).std() * np.sqrt(252)
+    benchmark_data['rolling_return'] = benchmark_data['return'].rolling(lookback_days).mean() * 252
+    
+    # Define regime thresholds
+    vol_threshold = benchmark_data['rolling_vol'].quantile(vol_threshold_pct)
+    return_threshold = benchmark_data['rolling_return'].quantile(return_threshold_pct)
+    bull_return_threshold = benchmark_data['rolling_return'].quantile(bull_return_threshold_pct)
+    
+    # Initial regime classification
+    benchmark_data['regime'] = 'normal'
+    benchmark_data.loc[
+        (benchmark_data['rolling_vol'] > vol_threshold) & 
+        (benchmark_data['rolling_return'] < return_threshold), 'regime'
+    ] = 'stress'
+    benchmark_data.loc[
+        (benchmark_data['rolling_vol'] < vol_threshold) & 
+        (benchmark_data['rolling_return'] > bull_return_threshold), 'regime'
+    ] = 'bull'
+    
+    # Apply minimum regime duration filter to reduce volatility
+    print(f"   📊 Applying minimum regime duration filter ({min_regime_duration} days)...")
+    
+    # Forward fill regimes to ensure minimum duration
+    benchmark_data['regime_stable'] = benchmark_data['regime']
+    
+    # Use rolling window to smooth regime changes
+    for i in range(min_regime_duration, len(benchmark_data)):
+        # Check if we have enough consecutive days in the same regime
+        recent_regimes = benchmark_data['regime'].iloc[i-min_regime_duration+1:i+1]
+        if len(recent_regimes.unique()) == 1:
+            # Stable regime, keep it
+            benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = recent_regimes.iloc[0]
+        else:
+            # Unstable, keep previous stable regime
+            if i > 0:
+                benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
+    
+    # Use stable regime as final regime
+    benchmark_data['regime'] = benchmark_data['regime_stable']
+    benchmark_data = benchmark_data.drop('regime_stable', axis=1)
+    
+    print(f"   ✅ Regime detection completed with stability controls")
+    print(f"   📊 Regime distribution:")
+    regime_counts = benchmark_data['regime'].value_counts()
+    for regime, count in regime_counts.items():
+        print(f"      {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
+    
+    # Calculate regime stability metrics
+    regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
+    print(f"   📊 Regime stability: {regime_changes} changes over {len(benchmark_data)} days")
+    
+    return benchmark_data
+
+def calculate_regime_adjusted_scores(factor_data, benchmark_data, config):
+    """Calculate regime-adjusted composite scores with allocation controls."""
+    print("📊 Calculating regime-adjusted scores with allocation controls...")
+    
+    # Merge factor data with regime information
+    factor_data = factor_data.merge(
+        benchmark_data[['date', 'regime']], 
+        on='date', 
+        how='left'
+    )
+    
+    # Get regime-specific factor weights from config
+    regime_weights = config['factor_weights']
+    
+    # Calculate regime-adjusted composite scores
+    factor_data['composite_score'] = 0.0
+    factor_data['allocation_multiplier'] = 1.0  # Default 100% allocation
+    
+    for regime, weights in regime_weights.items():
+        mask = factor_data['regime'] == regime
+        
+        # Calculate composite score
+        factor_data.loc[mask, 'composite_score'] = (
+            factor_data.loc[mask, 'Quality_Composite'] * weights['quality'] +
+            factor_data.loc[mask, 'Value_Composite'] * weights['value'] +
+            factor_data.loc[mask, 'Momentum_Composite'] * weights['momentum']
+        )
+        
+        # Apply allocation multiplier if specified
+        if 'allocation' in weights:
+            factor_data.loc[mask, 'allocation_multiplier'] = weights['allocation']
+    
+    # Fill any missing regimes with normal weights
+    missing_mask = factor_data['composite_score'] == 0.0
+    factor_data.loc[missing_mask, 'composite_score'] = (
+        factor_data.loc[missing_mask, 'Quality_Composite'] * 0.33 +
+        factor_data.loc[missing_mask, 'Value_Composite'] * 0.33 +
+        factor_data.loc[missing_mask, 'Momentum_Composite'] * 0.34
+    )
+    
+    print(f"   ✅ Regime-adjusted scores calculated with allocation controls")
+    print(f"   📊 Score statistics:")
+    print(f"      Mean: {factor_data['composite_score'].mean():.3f}")
+    print(f"      Std: {factor_data['composite_score'].std():.3f}")
+    print(f"      Min: {factor_data['composite_score'].min():.3f}")
+    print(f"      Max: {factor_data['composite_score'].max():.3f}")
+    
+    # Print allocation statistics
+    allocation_stats = factor_data['allocation_multiplier'].value_counts().sort_index()
+    print(f"   📊 Allocation distribution:")
+    for allocation, count in allocation_stats.items():
+        print(f"      {allocation*100:.0f}% allocation: {count} records ({count/len(factor_data)*100:.1f}%)")
+    
+    return factor_data
+
+print("✅ Regime detection and factor integration functions defined")
+
+# %% [markdown]
+# # STRATEGY LOGIC FUNCTIONS
+
+# %%
 def calculate_universe_rankings(price_data, config):
-    """Calculate universe rankings."""
+    """Calculate universe rankings based on average daily trading value (ADTV)."""
     print("📊 Calculating universe rankings...")
     
     lookback_days = config['universe']['lookback_days']
     
-    # Calculate rolling ADTV
+    # Calculate rolling ADTV (Average Daily Trading Value)
     price_data = price_data.sort_values(['ticker', 'date'])
     price_data['adtv'] = price_data.groupby('ticker')['daily_value'].rolling(
         window=lookback_days, min_periods=lookback_days//2
@@ -223,6 +412,12 @@ def calculate_portfolio_returns(portfolio, price_data, start_date, end_date):
     else:
         return pd.Series(dtype=float)
 
+print("✅ Strategy logic functions defined")
+
+# %% [markdown]
+# # MAIN BACKTEST FUNCTION
+
+# %%
 def run_long_only_backtest(config, db_engine):
     """Run long-only backtest using REAL data."""
     print("🚀 Starting LONG-ONLY REAL data backtest...")
@@ -239,6 +434,9 @@ def run_long_only_backtest(config, db_engine):
     # Calculate universe rankings
     universe_rankings = calculate_universe_rankings(price_data, config)
     
+    # Detect market regime
+    benchmark_data = detect_market_regime(benchmark_data, config)
+    
     # Merge factor scores with universe rankings
     combined_data = factor_scores.merge(
         universe_rankings[['ticker', 'date', 'in_universe']], 
@@ -246,7 +444,9 @@ def run_long_only_backtest(config, db_engine):
         how='inner'
     )
     combined_data = combined_data[combined_data['in_universe'] == True].copy()
-    combined_data['composite_score'] = combined_data['QVM_Composite']
+    
+    # Calculate regime-adjusted composite scores
+    combined_data = calculate_regime_adjusted_scores(combined_data, benchmark_data, config)
     
     # Generate rebalancing dates
     start_date = pd.to_datetime(config['backtest_start_date'])
@@ -270,17 +470,25 @@ def run_long_only_backtest(config, db_engine):
             # Sort by composite score (descending) - LONG-ONLY
             date_data = date_data.sort_values('composite_score', ascending=False)
             
-            # Select top stocks for long-only portfolio
+            # Select top stocks for long-only portfolio (always 20 stocks)
             target_size = config['universe']['target_portfolio_size']
-            max_position = config['universe']['max_position_size']
+            actual_portfolio_size = min(len(date_data), target_size)
             
-            # Equal weight portfolio
-            weights = np.ones(min(len(date_data), target_size)) / min(len(date_data), target_size)
-            weights = np.minimum(weights, max_position)
-            weights = weights / weights.sum()
+            # Get allocation multiplier for this date (use the first one since all should be same for a date)
+            allocation_multiplier = date_data['allocation_multiplier'].iloc[0]
             
-            portfolio = date_data.head(len(weights)).copy()
+            # Equal weight portfolio with proportional allocation adjustment
+            # Keep 20 stocks but reduce position sizes proportionally
+            base_weight = 1.0 / actual_portfolio_size
+            adjusted_weight = base_weight * allocation_multiplier
+            
+            weights = np.ones(actual_portfolio_size) * adjusted_weight
+            
+            portfolio = date_data.head(actual_portfolio_size).copy()
             portfolio['weight'] = weights
+            
+            # Store regime and allocation info for analysis
+            current_regime = date_data['regime'].iloc[0]
             
             # Calculate ACTUAL returns using real price data
             period_returns = calculate_portfolio_returns(portfolio, price_data, rebalance_date, next_rebalance_date)
@@ -306,7 +514,11 @@ def run_long_only_backtest(config, db_engine):
                     'next_date': next_rebalance_date,
                     'portfolio_return': period_return,
                     'portfolio_size': len(portfolio),
-                    'avg_score': portfolio['composite_score'].mean()
+                    'avg_score': portfolio['composite_score'].mean(),
+                    'regime': current_regime,
+                    'allocation_multiplier': allocation_multiplier,
+                    'actual_allocation': allocation_multiplier,  # This now represents the proportion of capital invested
+                    'avg_position_size': portfolio['weight'].mean()
                 })
     
     # Convert to DataFrame
@@ -325,18 +537,39 @@ def run_long_only_backtest(config, db_engine):
     print(f"✅ LONG-ONLY REAL data backtest completed: {len(results_df)} periods")
     return results_df, benchmark_data, daily_returns_df
 
+print("✅ Main backtest function defined")
+
+# %% [markdown]
+# # PERFORMANCE ANALYSIS FUNCTIONS
+
+# %%
 def calculate_performance_metrics(backtest_results, daily_returns, benchmark_data):
-    """Calculate performance metrics."""
+    """Calculate comprehensive performance metrics."""
     if backtest_results.empty or daily_returns.empty:
         return {}, {}
     
-    # Strategy metrics from daily returns
-    strategy_returns = daily_returns['return']
-    strategy_cumulative = daily_returns['cumulative_return']
+    # Strategy metrics from daily returns - handle duplicates
+    strategy_returns = daily_returns.set_index('date')['return']
+    strategy_cumulative = daily_returns.set_index('date')['cumulative_return']
     
-    # Benchmark metrics
-    benchmark_returns = benchmark_data['return'].reindex(daily_returns['date']).fillna(0)
-    benchmark_cumulative = benchmark_data['cumulative_return'].reindex(daily_returns['date']).fillna(1)
+    # Remove duplicates by taking the last occurrence
+    strategy_returns = strategy_returns.groupby(level=0).last()
+    strategy_cumulative = strategy_cumulative.groupby(level=0).last()
+    
+    # Benchmark metrics - ensure proper date alignment
+    benchmark_returns = benchmark_data.set_index('date')['return']
+    benchmark_cumulative = benchmark_data.set_index('date')['cumulative_return']
+    
+    # Remove duplicates by taking the last occurrence
+    benchmark_returns = benchmark_returns.groupby(level=0).last()
+    benchmark_cumulative = benchmark_cumulative.groupby(level=0).last()
+    
+    # Align dates
+    common_dates = strategy_returns.index.intersection(benchmark_returns.index)
+    strategy_returns = strategy_returns.reindex(common_dates)
+    strategy_cumulative = strategy_cumulative.reindex(common_dates)
+    benchmark_returns = benchmark_returns.reindex(common_dates)
+    benchmark_cumulative = benchmark_cumulative.reindex(common_dates)
     
     # Basic metrics
     total_return = strategy_cumulative.iloc[-1] - 1
@@ -389,11 +622,11 @@ def calculate_performance_metrics(backtest_results, daily_returns, benchmark_dat
         'benchmark_cumulative': benchmark_cumulative,
         'drawdown': drawdown,
         'excess_returns': excess_returns,
-        'daily_dates': daily_returns['date']
+        'daily_dates': strategy_returns.index
     }
 
 def create_equity_curve_tearsheet(backtest_results, daily_returns, benchmark_data, metrics, performance_data, config):
-    """Create tearsheet with equity curve."""
+    """Create comprehensive tearsheet with equity curve and performance analysis."""
     if backtest_results.empty or daily_returns.empty:
         return None
     
@@ -475,7 +708,7 @@ def create_equity_curve_tearsheet(backtest_results, daily_returns, benchmark_dat
     return fig
 
 def save_results(backtest_results, daily_returns, metrics, performance_data, config):
-    """Save results."""
+    """Save results to CSV files for further analysis."""
     print("💾 Saving results...")
     
     results_dir = Path("insights")
@@ -492,6 +725,12 @@ def save_results(backtest_results, daily_returns, metrics, performance_data, con
     
     print(f"✅ Results saved to {results_dir}/")
 
+print("✅ Performance analysis functions defined")
+
+# %% [markdown]
+# # MAIN EXECUTION FUNCTION
+
+# %%
 def main():
     """Main execution function."""
     print("🚀 QVM Engine v3j Long-Only Real Data Strategy")
@@ -533,5 +772,6 @@ def main():
         import traceback
         traceback.print_exc()
 
+# Execute the strategy
 if __name__ == "__main__":
     main()

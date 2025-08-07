@@ -1,290 +1,272 @@
 #!/usr/bin/env python3
-"""
-Diagnostic script to understand regime detection and strategy underperformance
-"""
 
+# %% [markdown]
+# # Debug Regime Detection
+# 
+# This script analyzes the regime detection logic to understand why it's showing 65% bull regime.
+
+# %%
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime, timedelta
-import sys
-import os
+from pathlib import Path
+import warnings
+warnings.filterwarnings('ignore')
 
-# Add the parent directory to the path to import the strategy
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add Project Root to Python Path
+current_path = Path.cwd()
+while not (current_path / 'production').is_dir():
+    if current_path.parent == current_path:
+        raise FileNotFoundError("Could not find the 'production' directory.")
+    current_path = current_path.parent
 
-# Import the strategy module
-import importlib.util
-spec = importlib.util.spec_from_file_location(
-    "strategy_module", 
-    "08_integrated_strategy_with_validated_factors_fixed.py"
-)
-strategy_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(strategy_module)
+project_root = current_path
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-def analyze_market_data_characteristics():
-    """Analyze the actual market data characteristics to understand regime detection"""
-    print("=== MARKET DATA CHARACTERISTICS ANALYSIS ===")
+from production.database.connection import get_database_manager
+
+print("✅ Debug script initialized")
+
+# %%
+def create_db_connection():
+    """Create database connection."""
+    try:
+        db_manager = get_database_manager()
+        engine = db_manager.get_engine()
+        print("✅ Database connection established")
+        return engine
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        raise
+
+def load_benchmark_data(db_engine):
+    """Load benchmark data for regime analysis."""
+    print("📊 Loading benchmark data...")
     
-    # Load market data
-    engine = strategy_module.create_db_connection()
-    
-    # Get VNINDEX data
     query = """
-    SELECT date, close, volume
-    FROM etf_history 
+    SELECT 
+        date,
+        close as close_price
+    FROM etf_history
     WHERE ticker = 'VNINDEX' 
-    AND date >= '2016-01-01' 
-    AND date <= '2025-12-31'
+    AND date >= '2016-01-01' AND date <= '2025-12-31'
     ORDER BY date
     """
     
-    market_data = pd.read_sql(query, engine, params=())
-    market_data['date'] = pd.to_datetime(market_data['date'])
-    market_data.set_index('date', inplace=True)
-    
-    # Calculate returns and volatility
-    market_data['returns'] = market_data['close'].pct_change()
-    market_data['volatility_21d'] = market_data['returns'].rolling(21).std()
-    market_data['volatility_63d'] = market_data['returns'].rolling(63).std()
-    market_data['returns_21d'] = market_data['returns'].rolling(21).mean()
-    market_data['returns_63d'] = market_data['returns'].rolling(63).mean()
-    
-    print(f"Market data shape: {market_data.shape}")
-    print(f"Date range: {market_data.index.min()} to {market_data.index.max()}")
-    
-    # Analyze volatility distribution
-    print("\n=== VOLATILITY ANALYSIS ===")
-    print(f"21-day volatility - Mean: {market_data['volatility_21d'].mean():.6f}")
-    print(f"21-day volatility - Median: {market_data['volatility_21d'].median():.6f}")
-    print(f"21-day volatility - 25th percentile: {market_data['volatility_21d'].quantile(0.25):.6f}")
-    print(f"21-day volatility - 75th percentile: {market_data['volatility_21d'].quantile(0.75):.6f}")
-    print(f"21-day volatility - 95th percentile: {market_data['volatility_21d'].quantile(0.95):.6f}")
-    
-    print(f"\n63-day volatility - Mean: {market_data['volatility_63d'].mean():.6f}")
-    print(f"63-day volatility - Median: {market_data['volatility_63d'].median():.6f}")
-    print(f"63-day volatility - 25th percentile: {market_data['volatility_63d'].quantile(0.25):.6f}")
-    print(f"63-day volatility - 75th percentile: {market_data['volatility_63d'].quantile(0.75):.6f}")
-    print(f"63-day volatility - 95th percentile: {market_data['volatility_63d'].quantile(0.95):.6f}")
-    
-    # Analyze returns distribution
-    print("\n=== RETURNS ANALYSIS ===")
-    print(f"21-day returns - Mean: {market_data['returns_21d'].mean():.6f}")
-    print(f"21-day returns - Median: {market_data['returns_21d'].median():.6f}")
-    print(f"21-day returns - 25th percentile: {market_data['returns_21d'].quantile(0.25):.6f}")
-    print(f"21-day returns - 75th percentile: {market_data['returns_21d'].quantile(0.75):.6f}")
-    print(f"21-day returns - 95th percentile: {market_data['returns_21d'].quantile(0.95):.6f}")
-    
-    print(f"\n63-day returns - Mean: {market_data['returns_63d'].mean():.6f}")
-    print(f"63-day returns - Median: {market_data['returns_63d'].median():.6f}")
-    print(f"63-day returns - 25th percentile: {market_data['returns_63d'].quantile(0.25):.6f}")
-    print(f"63-day returns - 75th percentile: {market_data['returns_63d'].quantile(0.75):.6f}")
-    print(f"63-day returns - 95th percentile: {market_data['returns_63d'].quantile(0.95):.6f}")
-    
-    # Test current regime thresholds
-    current_thresholds = strategy_module.QVM_CONFIG['regime']
-    print(f"\n=== CURRENT REGIME THRESHOLDS ===")
-    print(f"Lookback period: {current_thresholds['lookback_period']}")
-    print(f"Volatility threshold: {current_thresholds['volatility_threshold']}")
-    print(f"Return threshold: {current_thresholds['return_threshold']}")
-    print(f"Low return threshold: {current_thresholds['low_return_threshold']}")
-    
-    # Test regime detection with current thresholds
-    print(f"\n=== REGIME DETECTION TEST WITH CURRENT THRESHOLDS ===")
-    
-    # Create a sample of dates to test
-    test_dates = market_data.index[100:200]  # Skip first 100 days to have enough history
-    
-    regime_counts = {'Bull': 0, 'Bear': 0, 'Sideways': 0, 'Volatile': 0}
-    
-    for date in test_dates:
-        # Get historical data for regime detection
-        start_date = date - timedelta(days=current_thresholds['lookback_period'])
-        historical_data = market_data.loc[start_date:date]
+    try:
+        data = pd.read_sql(query, db_engine)
+        data['date'] = pd.to_datetime(data['date'])
+        data = data.sort_values('date')
+        data['return'] = data['close_price'].pct_change()
+        data['cumulative_return'] = (1 + data['return']).cumprod()
         
-        if len(historical_data) < current_thresholds['lookback_period']:
-            continue
-            
-        # Calculate regime metrics
-        volatility = historical_data['returns'].std()
-        returns = historical_data['returns'].mean()
+        print(f"   ✅ Loaded {len(data)} benchmark records")
+        print(f"   📈 Date range: {data['date'].min()} to {data['date'].max()}")
+        print(f"   📊 Total return: {(data['cumulative_return'].iloc[-1] - 1)*100:.1f}%")
+        print(f"   📊 Average daily return: {data['return'].mean()*100:.3f}%")
+        print(f"   📊 Daily volatility: {data['return'].std()*100:.3f}%")
         
-        # Apply regime detection logic
-        if volatility > current_thresholds['volatility_threshold']:
-            regime = 'Volatile'
-        elif returns > current_thresholds['return_threshold']:
-            regime = 'Bull'
-        elif returns < -current_thresholds['return_threshold']:
-            regime = 'Bear'
-        elif returns < current_thresholds['low_return_threshold']:
-            regime = 'Sideways'
-        else:
-            regime = 'Sideways'
-            
-        regime_counts[regime] += 1
+        return data
         
-        if date in test_dates[:10]:  # Show first 10 examples
-            print(f"Date: {date.date()}, Volatility: {volatility:.6f}, Returns: {returns:.6f}, Regime: {regime}")
-    
-    print(f"\nTotal dates processed: {sum(regime_counts.values())}")
-    print(f"Dates with insufficient history: {len(test_dates) - sum(regime_counts.values())}")
-    
-    print(f"\nRegime distribution in test sample:")
-    total_count = sum(regime_counts.values())
-    if total_count > 0:
-        for regime, count in regime_counts.items():
-            percentage = (count / total_count) * 100
-            print(f"{regime}: {count} times ({percentage:.1f}%)")
-    else:
-        print("No regimes detected in test sample!")
-        print("This suggests the thresholds are too restrictive.")
-    
-    return market_data
+    except Exception as e:
+        print(f"   ❌ Failed to load benchmark data: {e}")
+        return pd.DataFrame()
 
-def test_different_regime_thresholds():
-    """Test different regime threshold combinations"""
-    print("\n=== TESTING DIFFERENT REGIME THRESHOLDS ===")
+def analyze_regime_detection(benchmark_data):
+    """Analyze the regime detection logic step by step."""
+    print("🔍 Analyzing regime detection logic...")
     
-    # Load market data
-    engine = strategy_module.create_db_connection()
-    query = """
-    SELECT date, close
-    FROM etf_history 
-    WHERE ticker = 'VNINDEX' 
-    AND date >= '2016-01-01' 
-    AND date <= '2025-12-31'
-    ORDER BY date
-    """
+    # Current regime detection parameters
+    lookback_days = 30
+    vol_threshold_pct = 0.75  # 75th percentile for high volatility (conservative)
+    return_threshold_pct = 0.25  # 25th percentile for low returns (conservative)
+    bull_return_threshold_pct = 0.75  # 75th percentile for high returns (bull regime)
+    min_regime_duration = 5
     
-    market_data = pd.read_sql(query, engine, params=())
-    market_data['date'] = pd.to_datetime(market_data['date'])
-    market_data.set_index('date', inplace=True)
-    market_data['returns'] = market_data['close'].pct_change()
+    # Calculate rolling metrics
+    benchmark_data = benchmark_data.sort_values('date')
+    benchmark_data['rolling_vol'] = benchmark_data['return'].rolling(lookback_days).std() * np.sqrt(252)
+    benchmark_data['rolling_return'] = benchmark_data['return'].rolling(lookback_days).mean() * 252
     
-    # Test different threshold combinations
-    threshold_combinations = [
-        {'lookback': 21, 'vol': 0.0080, 'ret': 0.0005, 'low_ret': 0.0010},  # Current
-        {'lookback': 42, 'vol': 0.0120, 'ret': 0.0010, 'low_ret': 0.0005},  # Previous
-        {'lookback': 63, 'vol': 0.0160, 'ret': 0.0015, 'low_ret': 0.0001},  # Earlier
-        {'lookback': 30, 'vol': 0.0100, 'ret': 0.0008, 'low_ret': 0.0003},  # Balanced
-        {'lookback': 60, 'vol': 0.0200, 'ret': 0.0020, 'low_ret': 0.0005},  # Conservative
+    # Remove NaN values for analysis
+    analysis_data = benchmark_data.dropna().copy()
+    
+    print(f"   📊 Analysis period: {len(analysis_data)} days")
+    print(f"   📊 Rolling volatility stats:")
+    print(f"      Mean: {analysis_data['rolling_vol'].mean():.3f}")
+    print(f"      Std: {analysis_data['rolling_vol'].std():.3f}")
+    print(f"      Min: {analysis_data['rolling_vol'].min():.3f}")
+    print(f"      Max: {analysis_data['rolling_vol'].max():.3f}")
+    print(f"      {vol_threshold_pct*100}th percentile: {analysis_data['rolling_vol'].quantile(vol_threshold_pct):.3f}")
+    
+    print(f"   📊 Rolling return stats:")
+    print(f"      Mean: {analysis_data['rolling_return'].mean():.3f}")
+    print(f"      Std: {analysis_data['rolling_return'].std():.3f}")
+    print(f"      Min: {analysis_data['rolling_return'].min():.3f}")
+    print(f"      Max: {analysis_data['rolling_return'].max():.3f}")
+    print(f"      {return_threshold_pct*100}th percentile: {analysis_data['rolling_return'].quantile(return_threshold_pct):.3f}")
+    
+    # Define regime thresholds
+    vol_threshold = analysis_data['rolling_vol'].quantile(vol_threshold_pct)
+    return_threshold = analysis_data['rolling_return'].quantile(return_threshold_pct)
+    bull_return_threshold = analysis_data['rolling_return'].quantile(bull_return_threshold_pct)
+    
+    print(f"   🎯 Regime thresholds:")
+    print(f"      Volatility threshold: {vol_threshold:.3f}")
+    print(f"      Return threshold (stress): {return_threshold:.3f}")
+    print(f"      Bull return threshold: {bull_return_threshold:.3f}")
+    
+    # Initial regime classification
+    analysis_data['regime'] = 'normal'
+    analysis_data.loc[
+        (analysis_data['rolling_vol'] > vol_threshold) & 
+        (analysis_data['rolling_return'] < return_threshold), 'regime'
+    ] = 'stress'
+    analysis_data.loc[
+        (analysis_data['rolling_vol'] < vol_threshold) & 
+        (analysis_data['rolling_return'] > bull_return_threshold), 'regime'
+    ] = 'bull'
+    
+    # Analyze initial regime distribution
+    print(f"   📊 Initial regime distribution:")
+    initial_counts = analysis_data['regime'].value_counts()
+    for regime, count in initial_counts.items():
+        print(f"      {regime}: {count} days ({count/len(analysis_data)*100:.1f}%)")
+    
+    # Analyze regime conditions
+    print(f"   📊 Regime condition analysis:")
+    stress_conditions = analysis_data[
+        (analysis_data['rolling_vol'] > vol_threshold) & 
+        (analysis_data['rolling_return'] < return_threshold)
+    ]
+    bull_conditions = analysis_data[
+        (analysis_data['rolling_vol'] < vol_threshold) & 
+        (analysis_data['rolling_return'] > bull_return_threshold)
+    ]
+    normal_conditions = analysis_data[
+        ~((analysis_data['rolling_vol'] > vol_threshold) & (analysis_data['rolling_return'] < return_threshold)) &
+        ~((analysis_data['rolling_vol'] < vol_threshold) & (analysis_data['rolling_return'] > bull_return_threshold))
     ]
     
-    test_dates = market_data.index[100:300]  # Larger sample
+    print(f"      Stress conditions met: {len(stress_conditions)} days")
+    print(f"      Bull conditions met: {len(bull_conditions)} days")
+    print(f"      Normal conditions (neither): {len(normal_conditions)} days")
     
-    for i, thresholds in enumerate(threshold_combinations):
-        print(f"\n--- Threshold Set {i+1}: {thresholds} ---")
-        
-        regime_counts = {'Bull': 0, 'Bear': 0, 'Sideways': 0, 'Volatile': 0}
-        
-        for date in test_dates:
-            start_date = date - timedelta(days=thresholds['lookback'])
-            historical_data = market_data.loc[start_date:date]
-            
-            if len(historical_data) < thresholds['lookback']:
-                continue
-                
-            volatility = historical_data['returns'].std()
-            returns = historical_data['returns'].mean()
-            
-            # Apply regime detection logic
-            if volatility > thresholds['vol']:
-                regime = 'Volatile'
-            elif returns > thresholds['ret']:
-                regime = 'Bull'
-            elif returns < -thresholds['ret']:
-                regime = 'Bear'
-            elif returns < thresholds['low_ret']:
-                regime = 'Sideways'
-            else:
-                regime = 'Sideways'
-                
-            regime_counts[regime] += 1
-        
-        total = sum(regime_counts.values())
-        print(f"Regime distribution:")
-        for regime, count in regime_counts.items():
-            percentage = (count / total) * 100 if total > 0 else 0
-            print(f"  {regime}: {count} times ({percentage:.1f}%)")
+    # Check specific periods
+    print(f"   📊 Specific period analysis:")
+    
+    # 2020 COVID crash
+    covid_period = analysis_data[
+        (analysis_data['date'] >= '2020-02-01') & 
+        (analysis_data['date'] <= '2020-04-30')
+    ]
+    if len(covid_period) > 0:
+        print(f"      COVID period (Feb-Apr 2020):")
+        print(f"        Regime distribution: {covid_period['regime'].value_counts().to_dict()}")
+        print(f"        Avg volatility: {covid_period['rolling_vol'].mean():.3f}")
+        print(f"        Avg return: {covid_period['rolling_return'].mean():.3f}")
+    
+    # 2022 crash
+    crash_2022 = analysis_data[
+        (analysis_data['date'] >= '2022-01-01') & 
+        (analysis_data['date'] <= '2022-12-31')
+    ]
+    if len(crash_2022) > 0:
+        print(f"      2022 period:")
+        print(f"        Regime distribution: {crash_2022['regime'].value_counts().to_dict()}")
+        print(f"        Avg volatility: {crash_2022['rolling_vol'].mean():.3f}")
+        print(f"        Avg return: {crash_2022['rolling_return'].mean():.3f}")
+    
+    return analysis_data
 
-def compare_with_working_strategy():
-    """Compare current strategy with the working 07_integrated_strategy_enhanced"""
-    print("\n=== COMPARING WITH WORKING STRATEGY ===")
+def plot_regime_analysis(benchmark_data, analysis_data):
+    """Plot regime analysis for visual inspection."""
+    print("📊 Creating regime analysis plots...")
     
-    # Load the working strategy
-    spec = importlib.util.spec_from_file_location(
-        "working_strategy", 
-        "07_integrated_strategy_enhanced.py"
-    )
-    working_strategy = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(working_strategy)
+    fig, axes = plt.subplots(3, 1, figsize=(16, 12))
     
-    print("Current strategy config:")
-    print(f"  Strategy name: {strategy_module.QVM_CONFIG['strategy_name']}")
-    print(f"  Factor weights: {strategy_module.QVM_CONFIG['factors']}")
-    print(f"  Adaptive rebalancing: {'Yes' if 'adaptive_rebalancing' in strategy_module.QVM_CONFIG else 'No'}")
+    # 1. Price and cumulative return
+    axes[0].plot(benchmark_data['date'], benchmark_data['cumulative_return'], 
+                label='VNINDEX Cumulative Return', linewidth=2, color='blue')
+    axes[0].set_title('VNINDEX Cumulative Return', fontsize=14, fontweight='bold')
+    axes[0].set_ylabel('Cumulative Return')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend()
     
-    print("\nWorking strategy config:")
-    print(f"  Strategy name: {working_strategy.QVM_CONFIG['strategy_name']}")
-    print(f"  Factor weights: {working_strategy.QVM_CONFIG['factors']}")
-    print(f"  Adaptive rebalancing: {'Yes' if 'adaptive_rebalancing' in working_strategy.QVM_CONFIG else 'No'}")
+    # 2. Rolling volatility with threshold
+    vol_threshold = analysis_data['rolling_vol'].quantile(0.75)
+    axes[1].plot(analysis_data['date'], analysis_data['rolling_vol'], 
+                label='30-Day Rolling Volatility', linewidth=2, color='red')
+    axes[1].axhline(y=vol_threshold, color='red', linestyle='--', alpha=0.7, 
+                   label=f'75th percentile threshold: {vol_threshold:.3f}')
+    axes[1].set_title('30-Day Rolling Volatility', fontsize=14, fontweight='bold')
+    axes[1].set_ylabel('Annualized Volatility')
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend()
     
-    # Check if working strategy has regime detection
-    if hasattr(working_strategy, 'QVM_CONFIG') and 'regime' in working_strategy.QVM_CONFIG:
-        print(f"  Regime detection: {working_strategy.QVM_CONFIG['regime']}")
-    else:
-        print("  Regime detection: No")
+    # 3. Rolling return with threshold
+    return_threshold = analysis_data['rolling_return'].quantile(0.25)
+    axes[2].plot(analysis_data['date'], analysis_data['rolling_return'], 
+                label='30-Day Rolling Return', linewidth=2, color='green')
+    axes[2].axhline(y=return_threshold, color='green', linestyle='--', alpha=0.7,
+                   label=f'25th percentile threshold: {return_threshold:.3f}')
+    axes[2].axhline(y=0, color='black', linestyle='-', alpha=0.5)
+    axes[2].set_title('30-Day Rolling Return', fontsize=14, fontweight='bold')
+    axes[2].set_ylabel('Annualized Return')
+    axes[2].set_xlabel('Date')
+    axes[2].grid(True, alpha=0.3)
+    axes[2].legend()
+    
+    plt.tight_layout()
+    
+    # Save plot
+    plt.savefig('insights/regime_analysis_debug.png', dpi=300, bbox_inches='tight')
+    print("   ✅ Plot saved to insights/regime_analysis_debug.png")
+    
+    return fig
 
-def analyze_factor_calculations():
-    """Analyze if factor calculations are working correctly"""
-    print("\n=== FACTOR CALCULATION ANALYSIS ===")
+# %%
+def main():
+    """Main analysis function."""
+    print("🔍 Starting Regime Detection Debug Analysis")
+    print("="*60)
     
-    # Test factor calculations on a sample date
-    engine = strategy_module.create_db_connection()
-    
-    # Get a sample date
-    query = """
-    SELECT DISTINCT trading_date 
-    FROM vcsc_daily_data 
-    WHERE trading_date >= '2020-01-01' 
-    ORDER BY trading_date 
-    LIMIT 1
-    """
-    
-    sample_date = pd.read_sql(query, engine, params=()).iloc[0]['trading_date']
-    print(f"Testing factor calculations for date: {sample_date}")
-    
-    # Test individual factor functions
     try:
-        # Test F-Score calculation
-        fscore_data = strategy_module.calculate_piotroski_fscore(sample_date)
-        print(f"F-Score calculation - Shape: {fscore_data.shape if hasattr(fscore_data, 'shape') else 'No data'}")
-        if hasattr(fscore_data, 'shape') and fscore_data.shape[0] > 0:
-            print(f"F-Score range: {fscore_data['fscore'].min()} to {fscore_data['fscore'].max()}")
+        # Create database connection
+        db_engine = create_db_connection()
         
-        # Test FCF Yield calculation
-        fcf_data = strategy_module.calculate_fcf_yield(sample_date)
-        print(f"FCF Yield calculation - Shape: {fcf_data.shape if hasattr(fcf_data, 'shape') else 'No data'}")
-        if hasattr(fcf_data, 'shape') and fcf_data.shape[0] > 0:
-            print(f"FCF Yield range: {fcf_data['fcf_yield'].min()} to {fcf_data['fcf_yield'].max()}")
+        # Load benchmark data
+        benchmark_data = load_benchmark_data(db_engine)
         
-        # Test Low-Volatility calculation
-        lowvol_data = strategy_module.calculate_low_volatility_factor(sample_date)
-        print(f"Low-Volatility calculation - Shape: {lowvol_data.shape if hasattr(lowvol_data, 'shape') else 'No data'}")
-        if hasattr(lowvol_data, 'shape') and lowvol_data.shape[0] > 0:
-            print(f"Low-Volatility range: {lowvol_data['low_volatility_score'].min()} to {lowvol_data['low_volatility_score'].max()}")
-            
+        if benchmark_data.empty:
+            print("❌ Failed to load data")
+            return
+        
+        # Analyze regime detection
+        analysis_data = analyze_regime_detection(benchmark_data)
+        
+        # Create plots
+        fig = plot_regime_analysis(benchmark_data, analysis_data)
+        
+        # Save analysis results
+        results_dir = Path("insights")
+        results_dir.mkdir(exist_ok=True)
+        
+        analysis_data.to_csv(results_dir / "regime_analysis_debug.csv", index=False)
+        
+        print(f"\n✅ Analysis completed and saved to {results_dir}/")
+        print(f"📊 Key findings:")
+        print(f"   - Total analysis days: {len(analysis_data)}")
+        print(f"   - Regime distribution: {analysis_data['regime'].value_counts().to_dict()}")
+        print(f"   - Volatility threshold: {analysis_data['rolling_vol'].quantile(0.75):.3f}")
+        print(f"   - Return threshold: {analysis_data['rolling_return'].quantile(0.25):.3f}")
+        
     except Exception as e:
-        print(f"Error testing factor calculations: {e}")
+        print(f"❌ Analysis failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    print("=== REGIME DETECTION AND STRATEGY PERFORMANCE DIAGNOSTIC ===")
-    
-    # Run all analyses
-    market_data = analyze_market_data_characteristics()
-    test_different_regime_thresholds()
-    compare_with_working_strategy()
-    analyze_factor_calculations()
-    
-    print("\n=== DIAGNOSTIC COMPLETE ===") 
+    main() 
