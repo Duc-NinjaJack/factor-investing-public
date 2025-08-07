@@ -367,180 +367,121 @@ performance_metrics = calculate_performance_metrics(portfolio_values, daily_retu
 # # GENERATE COMPREHENSIVE TEARSHEET
 
 # %%
-def generate_comprehensive_tearsheet(holdings_df, portfolio_values, daily_returns, performance_metrics, config):
-    """Generate comprehensive tearsheet with detailed analysis."""
-    print("\n" + "="*100)
-    print("📊 COMPREHENSIVE PERFORMANCE TEARSHEET - QVM ENGINE v3j DEMONSTRATION")
-    print("="*100)
+def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_returns: pd.Series, diagnostics: pd.DataFrame, title: str):
+    """Generates comprehensive institutional tearsheet with equity curve and analysis."""
     
-    # Strategy Overview
-    print("\n🎯 STRATEGY OVERVIEW")
-    print("="*50)
-    print(f"Strategy Name: {config['strategy_name']}")
-    print(f"Backtest Period: {config['backtest_start_date']} to {config['backtest_end_date']}")
-    print(f"Portfolio Size: {config['universe']['top_n_stocks']} stocks")
-    print(f"Initial Capital: {config['initial_capital']:,} VND")
-    print(f"Transaction Cost: {config['transaction_cost_bps']} bps")
-    print(f"Rebalancing: Monthly")
-    print(f"Factor Weights: Quality 30% | Value 40% | Momentum 30%")
-    
-    # Portfolio Statistics
-    print("\n📊 PORTFOLIO STATISTICS")
-    print("="*50)
-    print(f"Total Holdings: {len(holdings_df):,}")
-    print(f"Unique Rebalancing Dates: {holdings_df['date'].nunique()}")
-    print(f"Unique Tickers Selected: {holdings_df['ticker'].nunique()}")
-    print(f"Average Holdings per Date: {len(holdings_df) / holdings_df['date'].nunique():.1f}")
-    print(f"Portfolio Values Calculated: {len(portfolio_values)}")
-    print(f"Daily Returns Calculated: {len(daily_returns):,}")
-    print(f"Valid Daily Returns: {len(daily_returns.dropna(subset=['portfolio_return'])):,}")
-    
-    # Performance Metrics
-    print("\n📈 PERFORMANCE METRICS")
-    print("="*50)
-    if performance_metrics:
-        print(f"{'Metric':<25} {'Strategy':<15} {'Benchmark':<15} {'Difference':<15}")
-        print("-" * 70)
-        print(f"{'Total Return':<25} {performance_metrics['total_return']:>14.2%} {performance_metrics['benchmark_total_return']:>14.2%} {(performance_metrics['total_return'] - performance_metrics['benchmark_total_return']):>14.2%}")
-        print(f"{'Annualized Return':<25} {performance_metrics['annualized_return']:>14.2%} {performance_metrics['benchmark_annualized_return']:>14.2%} {(performance_metrics['annualized_return'] - performance_metrics['benchmark_annualized_return']):>14.2%}")
-        print(f"{'Volatility':<25} {performance_metrics['volatility']:>14.2%} {performance_metrics['benchmark_volatility']:>14.2%} {(performance_metrics['volatility'] - performance_metrics['benchmark_volatility']):>14.2%}")
-        print(f"{'Sharpe Ratio':<25} {performance_metrics['sharpe_ratio']:>14.3f} {performance_metrics['benchmark_sharpe_ratio']:>14.3f} {(performance_metrics['sharpe_ratio'] - performance_metrics['benchmark_sharpe_ratio']):>14.3f}")
-        print(f"{'Maximum Drawdown':<25} {performance_metrics['max_drawdown']:>14.2%} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Win Rate':<25} {performance_metrics['win_rate']:>14.2%} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Information Ratio':<25} {performance_metrics['information_ratio']:>14.3f} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Beta':<25} {performance_metrics['beta']:>14.3f} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Alpha':<25} {performance_metrics['alpha']:>14.2%} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Calmar Ratio':<25} {performance_metrics['calmar_ratio']:>14.3f} {'N/A':>14} {'N/A':>14}")
-        print(f"{'Backtest Days':<25} {performance_metrics['days']:>14,} {'N/A':>14} {'N/A':>14}")
-    else:
-        print("Performance metrics not available")
-    
-    # Top Holdings Analysis
-    print("\n🏆 TOP HOLDINGS ANALYSIS")
-    print("="*50)
-    top_stocks = holdings_df['ticker'].value_counts().head(15)
-    print(f"{'Rank':<5} {'Ticker':<8} {'Periods':<10} {'Percentage':<12} {'Status':<15}")
-    print("-" * 50)
-    for rank, (ticker, count) in enumerate(top_stocks.items(), 1):
-        percentage = count / holdings_df['date'].nunique() * 100
-        if percentage >= 50:
-            status = "✅ Consistent"
-        elif percentage >= 30:
-            status = "✅ Regular"
-        elif percentage >= 20:
-            status = "⚠️ Moderate"
-        else:
-            status = "⚠️ Occasional"
-        print(f"{rank:<5} {ticker:<8} {count:<10} {percentage:>10.1f}% {status:<15}")
-    
-    # Portfolio Value Analysis
-    if not portfolio_values.empty:
-        print("\n💰 PORTFOLIO VALUE ANALYSIS")
-        print("="*50)
-        final_value = portfolio_values['portfolio_value'].iloc[-1]
-        min_value = portfolio_values['portfolio_value'].min()
-        max_value = portfolio_values['portfolio_value'].max()
-        avg_value = portfolio_values['portfolio_value'].mean()
-        
-        print(f"Final Portfolio Value: {final_value:,.0f} VND")
-        print(f"Portfolio Value Range: {min_value:,.0f} to {max_value:,.0f} VND")
-        print(f"Average Portfolio Value: {avg_value:,.0f} VND")
-        print(f"Value Growth: {((final_value / config['initial_capital']) - 1):.2%}")
-        print(f"Average Valid Holdings: {portfolio_values['valid_holdings'].mean():.1f}/{portfolio_values['total_holdings'].mean():.1f}")
-        
-        # Value distribution analysis
-        print(f"\nValue Distribution:")
-        print(f"  Min Value: {min_value:,.0f} VND")
-        print(f"  25th Percentile: {portfolio_values['portfolio_value'].quantile(0.25):,.0f} VND")
-        print(f"  Median: {portfolio_values['portfolio_value'].median():,.0f} VND")
-        print(f"  75th Percentile: {portfolio_values['portfolio_value'].quantile(0.75):,.0f} VND")
-        print(f"  Max Value: {max_value:,.0f} VND")
-    
-    # Risk Analysis
-    print("\n⚠️ RISK ANALYSIS")
-    print("="*50)
-    if performance_metrics:
-        # Sharpe Ratio Assessment
-        if performance_metrics['sharpe_ratio'] > 1.0:
-            sharpe_status = "✅ EXCELLENT (> 1.0)"
-        elif performance_metrics['sharpe_ratio'] > 0.5:
-            sharpe_status = "✅ GOOD (> 0.5)"
-        elif performance_metrics['sharpe_ratio'] > 0.0:
-            sharpe_status = "⚠️ NEEDS IMPROVEMENT (> 0.0)"
-        else:
-            sharpe_status = "❌ POOR (≤ 0.0)"
-        
-        # Max Drawdown Assessment
-        if performance_metrics['max_drawdown'] > -0.35:
-            dd_status = "✅ GOOD (< -35%)"
-        elif performance_metrics['max_drawdown'] > -0.50:
-            dd_status = "⚠️ MODERATE (-35% to -50%)"
-        else:
-            dd_status = "❌ HIGH (> -50%)"
-        
-        # Win Rate Assessment
-        if performance_metrics['win_rate'] > 0.55:
-            wr_status = "✅ GOOD (> 55%)"
-        elif performance_metrics['win_rate'] > 0.45:
-            wr_status = "⚠️ MODERATE (45-55%)"
-        else:
-            wr_status = "❌ POOR (< 45%)"
-        
-        # Information Ratio Assessment
-        if performance_metrics['information_ratio'] > 0.5:
-            ir_status = "✅ GOOD (> 0.5)"
-        elif performance_metrics['information_ratio'] > 0.0:
-            ir_status = "⚠️ MODERATE (0-0.5)"
-        else:
-            ir_status = "❌ POOR (≤ 0.0)"
-        
-        print(f"{'Metric':<20} {'Value':<15} {'Assessment':<20}")
-        print("-" * 55)
-        print(f"{'Sharpe Ratio':<20} {performance_metrics['sharpe_ratio']:<15.3f} {sharpe_status:<20}")
-        print(f"{'Max Drawdown':<20} {performance_metrics['max_drawdown']:<15.2%} {dd_status:<20}")
-        print(f"{'Win Rate':<20} {performance_metrics['win_rate']:<15.2%} {wr_status:<20}")
-        print(f"{'Information Ratio':<20} {performance_metrics['information_ratio']:<15.3f} {ir_status:<20}")
-        print(f"{'Beta':<20} {performance_metrics['beta']:<15.3f} {'✅ Diversified' if performance_metrics['beta'] < 1.0 else '⚠️ High Beta':<20}")
-        print(f"{'Alpha':<20} {performance_metrics['alpha']:<15.2%} {'✅ Positive' if performance_metrics['alpha'] > 0 else '⚠️ Negative':<20}")
-    
-    # Factor Performance Summary
-    print("\n🔍 FACTOR PERFORMANCE SUMMARY")
-    print("="*50)
-    print("Strategy Implementation:")
-    print("  ✅ Quality Factor (30%): ROAA-based with sector-specific normalization")
-    print("  ✅ Value Factor (40%): P/E + FCF Yield with ranking-based scaling")
-    print("  ✅ Momentum Factor (30%): Price momentum with skip-1-month convention")
-    print("  ✅ Forward Filling: Proper price data handling implemented")
-    print("  ✅ Data Quality: Extreme returns filtered (< ±50%)")
-    print("  ✅ Transaction Costs: 10 bps applied on rebalancing")
-    
-    # Key Achievements
-    print("\n🏆 KEY ACHIEVEMENTS")
-    print("="*50)
-    print("✅ Successfully resolved infinite returns issue with forward filling")
-    print("✅ Implemented proper factor normalization (0-1 scale)")
-    print("✅ Achieved 222.39% total return vs 141.75% benchmark")
-    print("✅ Generated 7.25% alpha with 0.603 beta")
-    print("✅ Maintained 55.51% win rate across 3,464 days")
-    print("✅ Processed 2,300 holdings across 115 rebalancing periods")
-    print("✅ Integrated 792,603 price records with data quality controls")
-    
-    # Areas for Improvement
-    print("\n⚠️ AREAS FOR IMPROVEMENT")
-    print("="*50)
-    print("⚠️ Maximum drawdown (-54.15%) exceeds target (-35%)")
-    print("⚠️ Sharpe ratio (0.735) below target (>1.0)")
-    print("⚠️ Information ratio (0.012) needs enhancement")
-    print("⚠️ Consider implementing regime detection for dynamic allocation")
-    print("⚠️ Add position sizing and stop-loss mechanisms")
-    
-    print("\n" + "="*100)
-    print("✅ COMPREHENSIVE TEARSHEET ANALYSIS COMPLETED")
-    print("="*100)
+    # Align benchmark for plotting & metrics
+    first_trade_date = strategy_returns.loc[strategy_returns.ne(0)].index.min()
+    aligned_strategy_returns = strategy_returns.loc[first_trade_date:]
+    aligned_benchmark_returns = benchmark_returns.loc[first_trade_date:]
 
-# %%
-# Generate tearsheet
-generate_comprehensive_tearsheet(holdings_df, portfolio_values, daily_returns, performance_metrics, CONFIG)
+    strategy_metrics = calculate_performance_metrics(strategy_returns, benchmark_returns)
+    benchmark_metrics = calculate_performance_metrics(benchmark_returns, benchmark_returns)
+    
+    fig = plt.figure(figsize=(18, 26))
+    gs = fig.add_gridspec(5, 2, height_ratios=[1.2, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
+    fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
+
+    # 1. Cumulative Performance (Equity Curve)
+    ax1 = fig.add_subplot(gs[0, :])
+    (1 + aligned_strategy_returns).cumprod().plot(ax=ax1, label='QVM Engine v3j', color='#16A085', lw=2.5)
+    (1 + aligned_benchmark_returns).cumprod().plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
+    ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
+    ax1.set_ylabel('Growth of 1 VND')
+    ax1.set_yscale('log')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, which='both', linestyle='--', alpha=0.5)
+
+    # 2. Drawdown Analysis
+    ax2 = fig.add_subplot(gs[1, :])
+    drawdown = ((1 + aligned_strategy_returns).cumprod() / (1 + aligned_strategy_returns).cumprod().cummax() - 1) * 100
+    drawdown.plot(ax=ax2, color='#C0392B')
+    ax2.fill_between(drawdown.index, drawdown, 0, color='#C0392B', alpha=0.1)
+    ax2.set_title('Drawdown Analysis', fontweight='bold')
+    ax2.set_ylabel('Drawdown (%)')
+    ax2.grid(True, linestyle='--', alpha=0.5)
+
+    # 3. Annual Returns
+    ax3 = fig.add_subplot(gs[2, 0])
+    strat_annual = aligned_strategy_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
+    bench_annual = aligned_benchmark_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
+    pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax3, color=['#16A085', '#34495E'])
+    ax3.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')
+    ax3.set_title('Annual Returns', fontweight='bold')
+    ax3.grid(True, axis='y', linestyle='--', alpha=0.5)
+
+    # 4. Rolling Sharpe Ratio
+    ax4 = fig.add_subplot(gs[2, 1])
+    rolling_sharpe = (aligned_strategy_returns.rolling(252).mean() * 252) / (aligned_strategy_returns.rolling(252).std() * np.sqrt(252))
+    rolling_sharpe.plot(ax=ax4, color='#E67E22')
+    ax4.axhline(1.0, color='#27AE60', linestyle='--')
+    ax4.set_title('1-Year Rolling Sharpe Ratio', fontweight='bold')
+    ax4.grid(True, linestyle='--', alpha=0.5)
+
+    # 5. Regime Analysis
+    ax5 = fig.add_subplot(gs[3, 0])
+    if not diagnostics.empty and 'regime' in diagnostics.columns:
+        regime_counts = diagnostics['regime'].value_counts()
+        regime_counts.plot(kind='bar', ax=ax5, color=['#3498DB', '#E74C3C', '#F39C12', '#9B59B6'])
+        ax5.set_title('Regime Distribution', fontweight='bold')
+        ax5.set_ylabel('Number of Rebalances')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+
+    # 6. Portfolio Size Evolution
+    ax6 = fig.add_subplot(gs[3, 1])
+    if not diagnostics.empty and 'portfolio_size' in diagnostics.columns:
+        diagnostics['portfolio_size'].plot(ax=ax6, color='#2ECC71', marker='o', markersize=3)
+        ax6.set_title('Portfolio Size Evolution', fontweight='bold')
+        ax6.set_ylabel('Number of Stocks')
+        ax6.grid(True, linestyle='--', alpha=0.5)
+
+    # 7. Performance Metrics Table
+    ax7 = fig.add_subplot(gs[4:, :])
+    ax7.axis('off')
+    summary_data = [['Metric', 'Strategy', 'Benchmark']]
+    for key in strategy_metrics.keys():
+        summary_data.append([key, f"{strategy_metrics[key]:.2f}", f"{benchmark_metrics.get(key, 0.0):.2f}"])
+    
+    table = ax7.table(cellText=summary_data[1:], colLabels=summary_data[0], loc='center', cellLoc='center')
+    table.auto_set_font_size(False)
+    table.set_fontsize(14)
+    table.scale(1, 2.5)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.show()
+
+def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:
+    """Calculates comprehensive performance metrics with corrected benchmark alignment."""
+    # Align benchmark
+    first_trade_date = returns.loc[returns.ne(0)].index.min()
+    if pd.isna(first_trade_date):
+        return {metric: 0.0 for metric in ['Annualized Return (%)', 'Annualized Volatility (%)', 'Sharpe Ratio', 'Max Drawdown (%)', 'Calmar Ratio', 'Information Ratio', 'Beta']}
+    
+    aligned_returns = returns.loc[first_trade_date:]
+    aligned_benchmark = benchmark.loc[first_trade_date:]
+
+    n_years = len(aligned_returns) / periods_per_year
+    annualized_return = ((1 + aligned_returns).prod() ** (1 / n_years) - 1) if n_years > 0 else 0
+    annualized_volatility = aligned_returns.std() * np.sqrt(periods_per_year)
+    sharpe_ratio = annualized_return / annualized_volatility if annualized_volatility != 0 else 0.0
+    
+    cumulative_returns = (1 + aligned_returns).cumprod()
+    max_drawdown = (cumulative_returns / cumulative_returns.cummax() - 1).min()
+    calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown < 0 else 0.0
+    
+    excess_returns = aligned_returns - aligned_benchmark
+    information_ratio = (excess_returns.mean() * periods_per_year) / (excess_returns.std() * np.sqrt(periods_per_year)) if excess_returns.std() > 0 else 0.0
+    beta = aligned_returns.cov(aligned_benchmark) / aligned_benchmark.var() if aligned_benchmark.var() > 0 else 0.0
+    
+    return {
+        'Annualized Return (%)': annualized_return * 100,
+        'Annualized Volatility (%)': annualized_volatility * 100,
+        'Sharpe Ratio': sharpe_ratio,
+        'Max Drawdown (%)': max_drawdown * 100,
+        'Calmar Ratio': calmar_ratio,
+        'Information Ratio': information_ratio,
+        'Beta': beta
+    }
 
 # %% [markdown]
 # # SAVE RESULTS
@@ -655,8 +596,25 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     print(f"   📊 Common dates: {len(common_dates)}")
 
 # %%
-# Create equity curve visualization
-create_equity_curve(daily_returns, benchmark_data, performance_metrics, CONFIG)
+# Generate comprehensive tearsheet with new format
+print("\n" + "="*80)
+print("📊 QVM ENGINE V3J: COMPREHENSIVE TEARSHEET")
+print("="*80)
+
+# Convert daily returns to strategy returns series
+strategy_returns = daily_returns.set_index('date')['portfolio_return']
+benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
+
+# Create empty diagnostics DataFrame (since we don't have regime data in this version)
+diagnostics = pd.DataFrame()
+
+# Generate the comprehensive tearsheet
+generate_comprehensive_tearsheet(
+    strategy_returns,
+    benchmark_returns,
+    diagnostics,
+    "QVM Engine v3j Demonstration - Full Period Analysis"
+)
 
 # %% [markdown]
 # # SUMMARY
