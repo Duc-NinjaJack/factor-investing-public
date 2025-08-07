@@ -29,57 +29,167 @@ from production.database.connection import DatabaseManager
 # # REGIME DETECTION COMPONENT
 
 # %%
-class RegimeDetector:
+class DynamicRegimeDetector:
     """
-    Advanced regime detection based on volatility and return thresholds with stability controls.
+    Dynamic regime detection using multiple factors with weighted scoring.
+    Factors: Momentum (30%), Volatility (25%), Drawdown (25%), Breadth (20%)
     """
-    def __init__(self, lookback_period: int = 90, volatility_threshold: float = 0.75, 
-                 return_threshold: float = 0.25, bull_return_threshold: float = 0.75,
-                 min_regime_duration: int = 5):
+    def __init__(self, lookback_period: int = 90, min_regime_duration: int = 30):
         self.lookback_period = lookback_period
-        self.volatility_threshold = volatility_threshold
-        self.return_threshold = return_threshold
-        self.bull_return_threshold = bull_return_threshold
         self.min_regime_duration = min_regime_duration
-        print(f"✅ RegimeDetector initialized with thresholds:")
+        
+        # Factor weights for dynamic scoring
+        self.factor_weights = {
+            'momentum': 0.30,    # Price trend strength (30%)
+            'volatility': 0.25,  # Market uncertainty (25%) 
+            'drawdown': 0.25,    # Current decline from peak (25%)
+            'breadth': 0.20      # Market participation (20%)
+        }
+        
+        # Scoring thresholds for regime classification
+        self.regime_thresholds = {
+            'bull': 0.7,        # High positive score
+            'growth': 0.4,      # Moderate positive score
+            'sideways': 0.0,    # Neutral score
+            'correction': -0.4,  # Moderate negative score
+            'crisis': -0.7      # High negative score
+        }
+        
+        print(f"✅ DynamicRegimeDetector initialized with multi-factor scoring:")
         print(f"   - Lookback Period: {self.lookback_period} days")
-        print(f"   - Volatility Threshold: {self.volatility_threshold:.2%} (percentile)")
-        print(f"   - Return Threshold: {self.return_threshold:.2%} (percentile)")
-        print(f"   - Bull Return Threshold: {self.bull_return_threshold:.2%} (percentile)")
         print(f"   - Min Regime Duration: {self.min_regime_duration} days")
+        print(f"   - Factor Weights: Momentum(30%), Volatility(25%), Drawdown(25%), Breadth(20%)")
+        print(f"   - Regime Thresholds: Bull(>0.7), Growth(>0.4), Sideways(0.0), Correction(<-0.4), Crisis(<-0.7)")
+    
+    def calculate_momentum_score(self, returns: pd.Series) -> float:
+        """Calculate momentum factor score based on trend strength."""
+        # Use multiple timeframes for momentum
+        short_momentum = returns.rolling(20).mean() * 252  # 1-month momentum
+        medium_momentum = returns.rolling(60).mean() * 252  # 3-month momentum
+        long_momentum = returns.rolling(120).mean() * 252   # 6-month momentum
+        
+        # Weighted momentum score
+        momentum_score = (0.5 * short_momentum + 0.3 * medium_momentum + 0.2 * long_momentum)
+        
+        # Normalize to [-1, 1] range
+        momentum_score = np.tanh(momentum_score)  # Sigmoid-like normalization
+        
+        return momentum_score
+    
+    def calculate_volatility_score(self, returns: pd.Series) -> float:
+        """Calculate volatility factor score (inverse relationship)."""
+        # Calculate rolling volatility
+        volatility = returns.rolling(self.lookback_period).std() * np.sqrt(252)
+        
+        # Normalize volatility to [0, 1] range using historical percentiles
+        vol_percentile = volatility.rolling(252).rank(pct=True)
+        
+        # Convert to score (lower volatility = higher score)
+        volatility_score = 1 - vol_percentile
+        
+        # Normalize to [-1, 1] range
+        volatility_score = 2 * volatility_score - 1
+        
+        return volatility_score
+    
+    def calculate_drawdown_score(self, cumulative_returns: pd.Series) -> float:
+        """Calculate drawdown factor score (inverse relationship)."""
+        # Calculate running maximum
+        running_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - running_max) / running_max
+        
+        # Normalize drawdown to [0, 1] range
+        drawdown_normalized = abs(drawdown) / 0.5  # Assume 50% max drawdown
+        drawdown_normalized = drawdown_normalized.clip(0, 1)
+        
+        # Convert to score (lower drawdown = higher score)
+        drawdown_score = 1 - drawdown_normalized
+        
+        # Normalize to [-1, 1] range
+        drawdown_score = 2 * drawdown_score - 1
+        
+        return drawdown_score
+    
+    def calculate_breadth_score(self, returns: pd.Series) -> float:
+        """Calculate market breadth factor score (simplified)."""
+        # For simplicity, use rolling correlation with a trend line
+        # Higher correlation = better breadth
+        
+        # Create trend line
+        x = np.arange(len(returns))
+        trend = np.polyfit(x, returns.cumsum(), 1)[0] * x
+        
+        # Calculate correlation with trend
+        correlation = returns.rolling(60).corr(pd.Series(trend, index=returns.index))
+        
+        # Handle NaN values
+        correlation = correlation.fillna(0)
+        
+        # Normalize to [-1, 1] range
+        breadth_score = correlation
+        
+        return breadth_score
+    
+    def calculate_dynamic_score(self, benchmark_data: pd.DataFrame) -> pd.Series:
+        """Calculate dynamic regime score using weighted factor combination."""
+        returns = benchmark_data['return']
+        
+        # Calculate individual factor scores
+        momentum_score = self.calculate_momentum_score(returns)
+        volatility_score = self.calculate_volatility_score(returns)
+        drawdown_score = self.calculate_drawdown_score((1 + returns).cumprod())
+        breadth_score = self.calculate_breadth_score(returns)
+        
+        # Combine scores with weights
+        dynamic_score = (
+            self.factor_weights['momentum'] * momentum_score +
+            self.factor_weights['volatility'] * volatility_score +
+            self.factor_weights['drawdown'] * drawdown_score +
+            self.factor_weights['breadth'] * breadth_score
+        )
+        
+        return dynamic_score
+    
+    def classify_regime_from_score(self, score: float) -> str:
+        """Classify regime based on dynamic score."""
+        if score > self.regime_thresholds['bull']:
+            return 'bull'
+        elif score > self.regime_thresholds['growth']:
+            return 'growth'
+        elif score > self.regime_thresholds['sideways']:
+            return 'sideways'
+        elif score > self.regime_thresholds['correction']:
+            return 'correction'
+        else:
+            return 'crisis'
     
     def detect_regime(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
-        """Detect market regime based on benchmark performance with stability controls."""
-        print("📊 Detecting market regime with stability controls...")
+        """Detect market regime using dynamic multi-factor scoring."""
+        print("📊 Detecting market regime with dynamic multi-factor system...")
         
-        # Calculate rolling volatility and returns
-        benchmark_data = benchmark_data.sort_values('date').copy()
-        benchmark_data['rolling_vol'] = benchmark_data['return'].rolling(self.lookback_period).std() * np.sqrt(252)
-        benchmark_data['rolling_return'] = benchmark_data['return'].rolling(self.lookback_period).mean() * 252
-        
-        # Define regime thresholds based on percentiles
-        vol_threshold = benchmark_data['rolling_vol'].quantile(self.volatility_threshold)
-        return_threshold = benchmark_data['rolling_return'].quantile(self.return_threshold)
-        bull_return_threshold = benchmark_data['rolling_return'].quantile(self.bull_return_threshold)
+        # Calculate dynamic scores
+        print("   📊 Calculating dynamic factor scores...")
+        dynamic_scores = self.calculate_dynamic_score(benchmark_data)
         
         # Initial regime classification
-        benchmark_data['regime'] = 'normal'
-        benchmark_data.loc[
-            (benchmark_data['rolling_vol'] > vol_threshold) & 
-            (benchmark_data['rolling_return'] < return_threshold), 'regime'
-        ] = 'stress'
-        benchmark_data.loc[
-            (benchmark_data['rolling_vol'] < vol_threshold) & 
-            (benchmark_data['rolling_return'] > bull_return_threshold), 'regime'
-        ] = 'bull'
+        print("   📊 Applying dynamic regime classification...")
+        benchmark_data['dynamic_score'] = dynamic_scores
+        benchmark_data['regime'] = 'sideways'  # default
         
-        # Apply minimum regime duration filter to reduce volatility and make periods more contiguous
+        # Classify regimes based on scores
+        for i in range(self.lookback_period, len(benchmark_data)):
+            if pd.notna(benchmark_data.iloc[i]['dynamic_score']):
+                score = benchmark_data.iloc[i]['dynamic_score']
+                regime = self.classify_regime_from_score(score)
+                benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime')] = regime
+        
+        # Apply minimum regime duration filter for stability
         print(f"   📊 Applying minimum regime duration filter ({self.min_regime_duration} days)...")
         
         # Forward fill regimes to ensure minimum duration
         benchmark_data['regime_stable'] = benchmark_data['regime']
         
-        # Use rolling window to smooth regime changes and make periods more contiguous
+        # Use rolling window to smooth regime changes
         for i in range(self.min_regime_duration, len(benchmark_data)):
             # Check if we have enough consecutive days in the same regime
             recent_regimes = benchmark_data['regime'].iloc[i-self.min_regime_duration+1:i+1]
@@ -91,13 +201,13 @@ class RegimeDetector:
                 if i > 0:
                     benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
         
-        # Additional smoothing: eliminate isolated regime changes using forward/backward fill
+        # Additional smoothing: eliminate isolated regime changes
         print(f"   📊 Applying additional smoothing to eliminate isolated regime changes...")
         
         # Create a copy for smoothing
         benchmark_data['regime_smooth'] = benchmark_data['regime_stable'].copy()
         
-        # Find isolated regime changes (regimes that only last 1-2 days)
+        # Find isolated regime changes (regimes that only last 1-5 days)
         for i in range(1, len(benchmark_data) - 1):
             current_regime = benchmark_data.iloc[i]['regime_stable']
             prev_regime = benchmark_data.iloc[i-1]['regime_stable']
@@ -105,8 +215,7 @@ class RegimeDetector:
             
             # If current regime is isolated (different from both previous and next)
             if current_regime != prev_regime and current_regime != next_regime:
-                # Check if it's a very short regime (1-2 days)
-                # Look forward and backward to see how long this regime lasts
+                # Check if it's a very short regime (1-5 days)
                 forward_count = 0
                 backward_count = 0
                 
@@ -124,12 +233,12 @@ class RegimeDetector:
                     else:
                         break
                 
-                # If total regime duration is very short (<= 3 days), smooth it
+                # If total regime duration is very short (<= 7 days), smooth it
                 total_duration = forward_count + backward_count + 1
-                if total_duration <= 3:
+                if total_duration <= 7:
                     # Use the regime that appears more frequently in the surrounding window
-                    window_start = max(0, i-5)
-                    window_end = min(len(benchmark_data), i+6)
+                    window_start = max(0, i-15)
+                    window_end = min(len(benchmark_data), i+16)
                     window_regimes = benchmark_data.iloc[window_start:window_end]['regime_stable']
                     
                     # Count regimes in the window
@@ -147,7 +256,7 @@ class RegimeDetector:
         benchmark_data['regime'] = benchmark_data['regime_smooth']
         benchmark_data = benchmark_data.drop(['regime_stable', 'regime_smooth'], axis=1)
         
-        print(f"   ✅ Regime detection completed with stability controls")
+        print(f"   ✅ Dynamic multi-factor regime detection completed")
         print(f"   📊 Regime distribution:")
         regime_counts = benchmark_data['regime'].value_counts()
         for regime, count in regime_counts.items():
@@ -157,14 +266,23 @@ class RegimeDetector:
         regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
         print(f"   📊 Regime stability: {regime_changes} changes over {len(benchmark_data)} days")
         
+        # Print factor score statistics
+        print(f"   📊 Dynamic score statistics:")
+        print(f"      Mean: {benchmark_data['dynamic_score'].mean():.3f}")
+        print(f"      Std: {benchmark_data['dynamic_score'].std():.3f}")
+        print(f"      Min: {benchmark_data['dynamic_score'].min():.3f}")
+        print(f"      Max: {benchmark_data['dynamic_score'].max():.3f}")
+        
         return benchmark_data
     
     def get_regime_allocation(self, regime: str) -> float:
-        """Get target allocation based on regime."""
+        """Get target allocation based on dynamic regime system."""
         regime_allocations = {
-            'normal': 0.8,    # 80% invested during normal periods
-            'bull': 1.0,      # 100% invested during bull periods
-            'stress': 0.4,    # 40% invested during stress periods
+            'bull': 1.0,       # 100% invested during bull periods
+            'growth': 0.9,     # 90% invested during growth periods
+            'sideways': 0.8,   # 80% invested during sideways periods
+            'correction': 0.5, # 50% invested during correction periods
+            'crisis': 0.3      # 30% invested during crisis periods
         }
         return regime_allocations.get(regime, 0.8)
 
@@ -187,16 +305,14 @@ CONFIG = {
     'initial_capital': 10_000_000_000,  # 10 billion VND
     'regime_detection': {
         'lookback_days': 90,  # 90 days lookback for regime detection
-        'volatility_threshold': 0.85,  # 85th percentile for high volatility (more conservative)
-        'return_threshold': 0.15,  # 15th percentile for low returns (more conservative)
-        'bull_return_threshold': 0.75,  # 75th percentile for high returns
-        'min_regime_duration': 30,  # Increased to 30 days for more stable regimes
-        'stress_drawdown_threshold': 0.20,  # 20% drawdown threshold for stress classification
+        'min_regime_duration': 30,  # 30 days minimum for stable regimes
     },
     'factor_weights': {
-        'normal': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
-        'stress': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.4},
         'bull': {'quality': 0.15, 'value': 0.25, 'momentum': 0.6, 'allocation': 1.0},
+        'growth': {'quality': 0.20, 'value': 0.30, 'momentum': 0.5, 'allocation': 0.9},
+        'sideways': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
+        'correction': {'quality': 0.4, 'value': 0.4, 'momentum': 0.2, 'allocation': 0.5},
+        'crisis': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.3},
     }
 }
 
@@ -281,12 +397,9 @@ print(f"✅ Benchmark data: {len(benchmark_data)} records")
 # # DETECT MARKET REGIME
 
 # %%
-# Initialize regime detector
-regime_detector = RegimeDetector(
+# Initialize dynamic regime detector
+regime_detector = DynamicRegimeDetector(
     lookback_period=CONFIG['regime_detection']['lookback_days'],
-    volatility_threshold=CONFIG['regime_detection']['volatility_threshold'],
-    return_threshold=CONFIG['regime_detection']['return_threshold'],
-    bull_return_threshold=CONFIG['regime_detection']['bull_return_threshold'],
     min_regime_duration=CONFIG['regime_detection']['min_regime_duration']
 )
 
@@ -626,15 +739,12 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
         # Get regime data aligned with the returns
         regime_data = diagnostics.reindex(aligned_strategy_returns.index, method='ffill')
         
-        # Shade bull periods (green with low alpha)
+        # Shade bull periods (green)
         bull_periods = regime_data[regime_data['regime'] == 'bull']
         if not bull_periods.empty:
-            # Simple shading for bull periods
             for i, date in enumerate(bull_periods.index):
                 if i == 0 or (date - bull_periods.index[i-1]).days > 1:
-                    # Start of a new bull period
                     start_date = date
-                    # Find the end of this bull period
                     end_date = date
                     for j in range(i+1, len(bull_periods.index)):
                         if (bull_periods.index[j] - bull_periods.index[j-1]).days == 1:
@@ -643,22 +753,47 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
                             break
                     ax1.axvspan(start_date, end_date, alpha=0.1, color='green', label='Bull Period' if i == 0 else "")
         
-        # Shade stress periods (red with low alpha)
-        stress_periods = regime_data[regime_data['regime'] == 'stress']
-        if not stress_periods.empty:
-            # Simple shading for stress periods
-            for i, date in enumerate(stress_periods.index):
-                if i == 0 or (date - stress_periods.index[i-1]).days > 1:
-                    # Start of a new stress period
+        # Shade growth periods (light green)
+        growth_periods = regime_data[regime_data['regime'] == 'growth']
+        if not growth_periods.empty:
+            for i, date in enumerate(growth_periods.index):
+                if i == 0 or (date - growth_periods.index[i-1]).days > 1:
                     start_date = date
-                    # Find the end of this stress period
                     end_date = date
-                    for j in range(i+1, len(stress_periods.index)):
-                        if (stress_periods.index[j] - stress_periods.index[j-1]).days == 1:
-                            end_date = stress_periods.index[j]
+                    for j in range(i+1, len(growth_periods.index)):
+                        if (growth_periods.index[j] - growth_periods.index[j-1]).days == 1:
+                            end_date = growth_periods.index[j]
                         else:
                             break
-                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Stress Period' if i == 0 else "")
+                    ax1.axvspan(start_date, end_date, alpha=0.05, color='lightgreen', label='Growth Period' if i == 0 else "")
+        
+        # Shade correction periods (orange)
+        correction_periods = regime_data[regime_data['regime'] == 'correction']
+        if not correction_periods.empty:
+            for i, date in enumerate(correction_periods.index):
+                if i == 0 or (date - correction_periods.index[i-1]).days > 1:
+                    start_date = date
+                    end_date = date
+                    for j in range(i+1, len(correction_periods.index)):
+                        if (correction_periods.index[j] - correction_periods.index[j-1]).days == 1:
+                            end_date = correction_periods.index[j]
+                        else:
+                            break
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='orange', label='Correction Period' if i == 0 else "")
+        
+        # Shade crisis periods (red)
+        crisis_periods = regime_data[regime_data['regime'] == 'crisis']
+        if not crisis_periods.empty:
+            for i, date in enumerate(crisis_periods.index):
+                if i == 0 or (date - crisis_periods.index[i-1]).days > 1:
+                    start_date = date
+                    end_date = date
+                    for j in range(i+1, len(crisis_periods.index)):
+                        if (crisis_periods.index[j] - crisis_periods.index[j-1]).days == 1:
+                            end_date = crisis_periods.index[j]
+                        else:
+                            break
+                    ax1.axvspan(start_date, end_date, alpha=0.15, color='red', label='Crisis Period' if i == 0 else "")
     
     ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
     ax1.set_ylabel('Growth of 1 VND')
