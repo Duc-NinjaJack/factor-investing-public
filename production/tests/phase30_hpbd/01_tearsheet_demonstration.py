@@ -73,13 +73,13 @@ class RegimeDetector:
             (benchmark_data['rolling_return'] > bull_return_threshold), 'regime'
         ] = 'bull'
         
-        # Apply minimum regime duration filter to reduce volatility
+        # Apply minimum regime duration filter to reduce volatility and make periods more contiguous
         print(f"   📊 Applying minimum regime duration filter ({self.min_regime_duration} days)...")
         
         # Forward fill regimes to ensure minimum duration
         benchmark_data['regime_stable'] = benchmark_data['regime']
         
-        # Use rolling window to smooth regime changes
+        # Use rolling window to smooth regime changes and make periods more contiguous
         for i in range(self.min_regime_duration, len(benchmark_data)):
             # Check if we have enough consecutive days in the same regime
             recent_regimes = benchmark_data['regime'].iloc[i-self.min_regime_duration+1:i+1]
@@ -91,9 +91,18 @@ class RegimeDetector:
                 if i > 0:
                     benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
         
-        # Use stable regime as final regime
-        benchmark_data['regime'] = benchmark_data['regime_stable']
-        benchmark_data = benchmark_data.drop('regime_stable', axis=1)
+        # Additional smoothing: use rolling mode to eliminate isolated regime changes
+        print(f"   📊 Applying additional smoothing to eliminate isolated regime changes...")
+        benchmark_data['regime_smooth'] = benchmark_data['regime_stable'].rolling(
+            window=7, center=True, min_periods=4
+        ).apply(lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[len(x)//2])
+        
+        # Forward fill any NaN values from rolling operation
+        benchmark_data['regime_smooth'] = benchmark_data['regime_smooth'].fillna(method='ffill').fillna(method='bfill')
+        
+        # Use smoothed regime as final regime
+        benchmark_data['regime'] = benchmark_data['regime_smooth']
+        benchmark_data = benchmark_data.drop(['regime_stable', 'regime_smooth'], axis=1)
         
         print(f"   ✅ Regime detection completed with stability controls")
         print(f"   📊 Regime distribution:")
@@ -110,11 +119,11 @@ class RegimeDetector:
     def get_regime_allocation(self, regime: str) -> float:
         """Get target allocation based on regime."""
         regime_allocations = {
-            'normal': 1.0,    # Fully invested
-            'bull': 1.0,      # Fully invested
-            'stress': 0.6,    # 60% invested
+            'normal': 0.8,    # 80% invested during normal periods
+            'bull': 1.0,      # 100% invested during bull periods
+            'stress': 0.4,    # 40% invested during stress periods
         }
-        return regime_allocations.get(regime, 1.0)
+        return regime_allocations.get(regime, 0.8)
 
 # %% [markdown]
 # # CONFIGURATION
@@ -138,12 +147,12 @@ CONFIG = {
         'volatility_threshold': 0.75,  # 75th percentile for high volatility
         'return_threshold': 0.25,  # 25th percentile for low returns
         'bull_return_threshold': 0.75,  # 75th percentile for high returns
-        'min_regime_duration': 5,  # Minimum days to stay in a regime
+        'min_regime_duration': 15,  # Increased minimum days to stay in a regime (more contiguous)
     },
     'factor_weights': {
-        'normal': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 1.0},
-        'stress': {'quality': 0.4, 'value': 0.3, 'momentum': 0.3, 'allocation': 0.6},
-        'bull': {'quality': 0.15, 'value': 0.35, 'momentum': 0.5, 'allocation': 1.0},
+        'normal': {'quality': 0.33, 'value': 0.33, 'momentum': 0.34, 'allocation': 0.8},
+        'stress': {'quality': 0.5, 'value': 0.4, 'momentum': 0.1, 'allocation': 0.4},
+        'bull': {'quality': 0.15, 'value': 0.25, 'momentum': 0.6, 'allocation': 1.0},
     }
 }
 
@@ -287,7 +296,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
             regime_allocation = regime_detector.get_regime_allocation(current_regime)
         else:
             current_regime = 'normal'
-            regime_allocation = 1.0
+            regime_allocation = 0.8
         
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
@@ -390,8 +399,51 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
     return portfolio_df, daily_returns_df
 
 # %%
-# Calculate returns
-portfolio_values, daily_returns = calculate_corrected_returns(holdings_df, price_data, benchmark_data, CONFIG, regime_detector)
+def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
+    """Apply regime-based factor weights to holdings data."""
+    print("📊 Applying regime-based factor weights...")
+    
+    # Merge holdings with regime information
+    holdings_with_regime = holdings_df.merge(
+        benchmark_data[['date', 'regime']], 
+        on='date', 
+        how='left'
+    )
+    
+    # Fill missing regimes with 'normal'
+    holdings_with_regime['regime'] = holdings_with_regime['regime'].fillna('normal')
+    
+    # Apply regime-based factor weights
+    holdings_with_regime['composite_score_adjusted'] = 0.0
+    
+    for regime, weights in config['factor_weights'].items():
+        mask = holdings_with_regime['regime'] == regime
+        
+        # Apply factor weights based on regime
+        holdings_with_regime.loc[mask, 'composite_score_adjusted'] = (
+            holdings_with_regime.loc[mask, 'quality_score'] * weights['quality'] +
+            holdings_with_regime.loc[mask, 'value_score'] * weights['value'] +
+            holdings_with_regime.loc[mask, 'momentum_score'] * weights['momentum']
+        )
+    
+    # Sort by adjusted composite score within each date
+    holdings_with_regime = holdings_with_regime.sort_values(['date', 'composite_score_adjusted'], ascending=[True, False])
+    
+    print(f"   ✅ Regime-based factor weights applied")
+    print(f"   📊 Regime distribution in holdings:")
+    regime_counts = holdings_with_regime['regime'].value_counts()
+    for regime, count in regime_counts.items():
+        print(f"      {regime}: {count} holdings ({count/len(holdings_with_regime)*100:.1f}%)")
+    
+    return holdings_with_regime
+
+# %%
+# Apply regime-based factor weights
+holdings_df_adjusted = apply_regime_based_factor_weights(holdings_df, benchmark_data, CONFIG)
+
+# %%
+# Calculate returns with regime-adjusted holdings
+portfolio_values, daily_returns = calculate_corrected_returns(holdings_df_adjusted, price_data, benchmark_data, CONFIG, regime_detector)
 
 # %% [markdown]
 # # CALCULATE PERFORMANCE METRICS
