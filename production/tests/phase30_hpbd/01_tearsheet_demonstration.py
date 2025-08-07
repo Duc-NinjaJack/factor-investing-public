@@ -518,10 +518,52 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     gs = fig.add_gridspec(5, 2, height_ratios=[1.2, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
     fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
 
-    # 1. Cumulative Performance (Equity Curve)
+    # 1. Cumulative Performance (Equity Curve) with Regime Shading
     ax1 = fig.add_subplot(gs[0, :])
+    
+    # Plot the main equity curves
     (1 + aligned_strategy_returns).cumprod().plot(ax=ax1, label='QVM Engine v3j', color='#16A085', lw=2.5)
     (1 + aligned_benchmark_returns).cumprod().plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
+    
+    # Add regime shading if diagnostics data is available
+    if not diagnostics.empty and 'regime' in diagnostics.columns:
+        # Get regime data aligned with the returns
+        regime_data = diagnostics.reindex(aligned_strategy_returns.index, method='ffill')
+        
+        # Shade bull periods (green with low alpha)
+        bull_periods = regime_data[regime_data['regime'] == 'bull']
+        if not bull_periods.empty:
+            # Simple shading for bull periods
+            for i, date in enumerate(bull_periods.index):
+                if i == 0 or (date - bull_periods.index[i-1]).days > 1:
+                    # Start of a new bull period
+                    start_date = date
+                    # Find the end of this bull period
+                    end_date = date
+                    for j in range(i+1, len(bull_periods.index)):
+                        if (bull_periods.index[j] - bull_periods.index[j-1]).days == 1:
+                            end_date = bull_periods.index[j]
+                        else:
+                            break
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='green', label='Bull Period' if i == 0 else "")
+        
+        # Shade stress periods (red with low alpha)
+        stress_periods = regime_data[regime_data['regime'] == 'stress']
+        if not stress_periods.empty:
+            # Simple shading for stress periods
+            for i, date in enumerate(stress_periods.index):
+                if i == 0 or (date - stress_periods.index[i-1]).days > 1:
+                    # Start of a new stress period
+                    start_date = date
+                    # Find the end of this stress period
+                    end_date = date
+                    for j in range(i+1, len(stress_periods.index)):
+                        if (stress_periods.index[j] - stress_periods.index[j-1]).days == 1:
+                            end_date = stress_periods.index[j]
+                        else:
+                            break
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Stress Period' if i == 0 else "")
+    
     ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
     ax1.set_ylabel('Growth of 1 VND')
     ax1.set_yscale('log')
@@ -752,6 +794,48 @@ generate_comprehensive_tearsheet(
     benchmark_returns,
     diagnostics,
     "QVM Engine v3j Demonstration - Full Period Analysis"
+)
+
+# %% [markdown]
+# # ADDITIONAL PERIOD TEARSHEETS
+
+# %%
+# 1. First Period Tearsheet (2016-2020)
+print("\n" + "="*80)
+print("📊 QVM ENGINE V3J: FIRST PERIOD TEARSHEET (2016-2020)")
+print("="*80)
+
+# Filter data for 2016-2020 period
+first_period_mask = (strategy_returns.index >= '2016-01-01') & (strategy_returns.index <= '2020-12-31')
+first_period_strategy_returns = strategy_returns[first_period_mask]
+first_period_benchmark_returns = benchmark_returns.reindex(first_period_strategy_returns.index).fillna(0)
+first_period_diagnostics = diagnostics.reindex(first_period_strategy_returns.index, method='ffill')
+
+# Generate first period tearsheet
+generate_comprehensive_tearsheet(
+    first_period_strategy_returns,
+    first_period_benchmark_returns,
+    first_period_diagnostics,
+    "QVM Engine v3j Demonstration - First Period (2016-2020)"
+)
+
+# 2. Second Period Tearsheet (2020-2025)
+print("\n" + "="*80)
+print("📊 QVM ENGINE V3J: SECOND PERIOD TEARSHEET (2020-2025)")
+print("="*80)
+
+# Filter data for 2020-2025 period
+second_period_mask = (strategy_returns.index >= '2020-01-01') & (strategy_returns.index <= '2025-12-31')
+second_period_strategy_returns = strategy_returns[second_period_mask]
+second_period_benchmark_returns = benchmark_returns.reindex(second_period_strategy_returns.index).fillna(0)
+second_period_diagnostics = diagnostics.reindex(second_period_strategy_returns.index, method='ffill')
+
+# Generate second period tearsheet
+generate_comprehensive_tearsheet(
+    second_period_strategy_returns,
+    second_period_benchmark_returns,
+    second_period_diagnostics,
+    "QVM Engine v3j Demonstration - Second Period (2020-2025)"
 )
 
 # %% [markdown]
