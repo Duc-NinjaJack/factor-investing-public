@@ -105,6 +105,14 @@ class EnhancedRegimeDetector:
         print("   📊 Applying enhanced 5-regime classification...")
         benchmark_data['regime'] = 'sideways'  # default
         
+        # Debug: Show some sample values
+        print(f"   📊 Sample rolling values (first 5 after lookback):")
+        for i in range(self.lookback_period, min(self.lookback_period + 5, len(benchmark_data))):
+            rolling_return = benchmark_data.iloc[i]['rolling_return']
+            rolling_vol = benchmark_data.iloc[i]['rolling_vol']
+            current_drawdown = benchmark_data.iloc[i]['drawdown']
+            print(f"      Date {benchmark_data.iloc[i]['date']}: Return={rolling_return:.3f}, Vol={rolling_vol:.3f}, DD={current_drawdown:.3f}")
+        
         for i in range(self.lookback_period, len(benchmark_data)):
             rolling_return = benchmark_data.iloc[i]['rolling_return']
             rolling_vol = benchmark_data.iloc[i]['rolling_vol']
@@ -331,6 +339,12 @@ regime_detector = EnhancedRegimeDetector(
 benchmark_data = regime_detector.detect_regime(benchmark_data)
 print(f"✅ Market regime detection completed")
 
+# Debug: Show regime distribution
+print("\n🔍 DEBUG: Regime distribution in benchmark data:")
+regime_counts = benchmark_data['regime'].value_counts()
+for regime, count in regime_counts.items():
+    print(f"   {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
+
 # %% [markdown]
 # # CALCULATE PORTFOLIO RETURNS
 
@@ -376,7 +390,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
             current_regime = regime_info['regime'].iloc[0]
             regime_allocation = regime_detector.get_regime_allocation(current_regime)
         else:
-            current_regime = 'normal'
+            current_regime = 'sideways'  # Default for 5-regime system
             regime_allocation = 0.8
         
         # Get prices for this date from the forward-filled matrix
@@ -491,8 +505,8 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
         how='left'
     )
     
-    # Fill missing regimes with 'normal'
-    holdings_with_regime['regime'] = holdings_with_regime['regime'].fillna('normal')
+    # Fill missing regimes with 'sideways' (default for 5-regime system)
+    holdings_with_regime['regime'] = holdings_with_regime['regime'].fillna('sideways')
     
     # Apply regime-based factor weights
     holdings_with_regime['composite_score_adjusted'] = 0.0
