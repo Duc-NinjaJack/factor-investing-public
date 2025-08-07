@@ -74,18 +74,23 @@ class EnhancedRegimeDetector:
         4. CORRECTION: Moderate negative returns, elevated volatility
         5. CRISIS: Strong negative returns, high volatility
         """
+        # More inclusive classification logic
         if rolling_return > self.return_thresholds['strong_positive'] and rolling_vol < self.volatility_thresholds['low']:
             return 'bull'
-        elif rolling_return > self.return_thresholds['moderate_positive'] and rolling_vol < self.volatility_thresholds['medium']:
+        elif rolling_return > self.return_thresholds['moderate_positive']:
             return 'growth'  
-        elif abs(rolling_return) < abs(self.return_thresholds['moderate_negative']) and rolling_vol < self.volatility_thresholds['medium']:
-            return 'sideways'
-        elif rolling_return < self.return_thresholds['moderate_negative'] and rolling_vol > self.volatility_thresholds['medium']:
-            return 'correction'
         elif rolling_return < self.return_thresholds['strong_negative'] and rolling_vol > self.volatility_thresholds['high']:
             return 'crisis'
+        elif rolling_return < self.return_thresholds['moderate_negative'] and rolling_vol > self.volatility_thresholds['medium']:
+            return 'correction'
+        elif abs(rolling_return) < abs(self.return_thresholds['moderate_negative']):
+            return 'sideways'
         else:
-            return 'sideways'  # default
+            # Fallback classification based on return direction
+            if rolling_return > 0:
+                return 'growth'
+            else:
+                return 'correction'
     
     def detect_regime(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
         """Detect market regime using enhanced 5-regime classification with stability controls."""
@@ -200,6 +205,12 @@ class EnhancedRegimeDetector:
         regime_counts = benchmark_data['regime'].value_counts()
         for regime, count in regime_counts.items():
             print(f"      {regime}: {count} days ({count/len(benchmark_data)*100:.1f}%)")
+        
+        # Debug: Show sample of regime transitions
+        print(f"   🔍 Sample regime transitions (first 20 after lookback):")
+        sample_regimes = benchmark_data[benchmark_data['date'] >= benchmark_data.iloc[self.lookback_period]['date']].head(20)
+        for _, row in sample_regimes.iterrows():
+            print(f"      {row['date']}: {row['regime']} (return: {row['rolling_return']:.3f}, vol: {row['rolling_vol']:.3f})")
         
         # Calculate regime stability metrics
         regime_changes = (benchmark_data['regime'] != benchmark_data['regime'].shift()).sum()
