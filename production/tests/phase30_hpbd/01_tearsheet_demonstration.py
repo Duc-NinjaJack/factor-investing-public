@@ -742,7 +742,7 @@ strategy_returns = daily_returns.set_index('date')['portfolio_return']
 benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
 
 # Create diagnostics DataFrame with regime information
-diagnostics = portfolio_values[['date', 'regime', 'regime_allocation', 'portfolio_size']].copy()
+diagnostics = portfolio_values[['date', 'regime', 'regime_allocation', 'valid_holdings']].copy()
 diagnostics['portfolio_size'] = diagnostics['valid_holdings']
 diagnostics = diagnostics.set_index('date')
 
