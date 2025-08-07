@@ -1,0 +1,15 @@
+total_return: inf
+benchmark_total_return: 1.4175176334350903
+annualized_return: inf
+benchmark_annualized_return: 0.09747711804937587
+volatility: nan
+benchmark_volatility: 0.1515214936354988
+sharpe_ratio: 0
+benchmark_sharpe_ratio: 0.3133358635150942
+max_drawdown: -0.13102166813230157
+win_rate: 0.37835497835497833
+information_ratio: 0
+beta: nan
+alpha: nan
+calmar_ratio: inf
+days: 3464
