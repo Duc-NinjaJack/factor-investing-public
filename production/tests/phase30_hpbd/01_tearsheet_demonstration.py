@@ -91,14 +91,57 @@ class RegimeDetector:
                 if i > 0:
                     benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_stable')] = benchmark_data.iloc[i-1]['regime_stable']
         
-        # Additional smoothing: use rolling mode to eliminate isolated regime changes
+        # Additional smoothing: eliminate isolated regime changes using forward/backward fill
         print(f"   📊 Applying additional smoothing to eliminate isolated regime changes...")
-        benchmark_data['regime_smooth'] = benchmark_data['regime_stable'].rolling(
-            window=7, center=True, min_periods=4
-        ).apply(lambda x: x.mode()[0] if len(x.mode()) > 0 else x.iloc[len(x)//2])
         
-        # Forward fill any NaN values from rolling operation
-        benchmark_data['regime_smooth'] = benchmark_data['regime_smooth'].fillna(method='ffill').fillna(method='bfill')
+        # Create a copy for smoothing
+        benchmark_data['regime_smooth'] = benchmark_data['regime_stable'].copy()
+        
+        # Find isolated regime changes (regimes that only last 1-2 days)
+        for i in range(1, len(benchmark_data) - 1):
+            current_regime = benchmark_data.iloc[i]['regime_stable']
+            prev_regime = benchmark_data.iloc[i-1]['regime_stable']
+            next_regime = benchmark_data.iloc[i+1]['regime_stable']
+            
+            # If current regime is isolated (different from both previous and next)
+            if current_regime != prev_regime and current_regime != next_regime:
+                # Check if it's a very short regime (1-2 days)
+                # Look forward and backward to see how long this regime lasts
+                forward_count = 0
+                backward_count = 0
+                
+                # Count forward
+                for j in range(i+1, len(benchmark_data)):
+                    if benchmark_data.iloc[j]['regime_stable'] == current_regime:
+                        forward_count += 1
+                    else:
+                        break
+                
+                # Count backward
+                for j in range(i-1, -1, -1):
+                    if benchmark_data.iloc[j]['regime_stable'] == current_regime:
+                        backward_count += 1
+                    else:
+                        break
+                
+                # If total regime duration is very short (<= 3 days), smooth it
+                total_duration = forward_count + backward_count + 1
+                if total_duration <= 3:
+                    # Use the regime that appears more frequently in the surrounding window
+                    window_start = max(0, i-5)
+                    window_end = min(len(benchmark_data), i+6)
+                    window_regimes = benchmark_data.iloc[window_start:window_end]['regime_stable']
+                    
+                    # Count regimes in the window
+                    regime_counts = window_regimes.value_counts()
+                    # Remove the current isolated regime from consideration
+                    if current_regime in regime_counts:
+                        regime_counts = regime_counts.drop(current_regime)
+                    
+                    if not regime_counts.empty:
+                        # Use the most common regime in the window
+                        most_common_regime = regime_counts.index[0]
+                        benchmark_data.iloc[i, benchmark_data.columns.get_loc('regime_smooth')] = most_common_regime
         
         # Use smoothed regime as final regime
         benchmark_data['regime'] = benchmark_data['regime_smooth']
