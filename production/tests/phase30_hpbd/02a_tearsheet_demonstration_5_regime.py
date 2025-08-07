@@ -482,6 +482,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                 # Equal weight portfolio return
                                 portfolio_return = portfolio_daily_returns.mean()
                                 
+                                # Apply regime-based allocation to the daily return
+                                portfolio_return = portfolio_return * regime_allocation
+                                
                                 # Apply transaction costs on rebalancing day
                                 if daily_date == date:
                                     transaction_cost = config['transaction_cost_bps'] / 10000
@@ -539,6 +542,10 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
     
     # Sort by adjusted composite score within each date
     holdings_with_regime = holdings_with_regime.sort_values(['date', 'composite_score_adjusted'], ascending=[True, False])
+    
+    # Select top N stocks based on adjusted composite score
+    print(f"   📊 Selecting top {config['universe']['top_n_stocks']} stocks per date...")
+    holdings_with_regime = holdings_with_regime.groupby('date').head(config['universe']['top_n_stocks']).reset_index(drop=True)
     
     print(f"   ✅ Regime-based factor weights applied")
     print(f"   📊 Regime distribution in holdings:")
