@@ -457,9 +457,14 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
         if not regime_info.empty:
             current_regime = regime_info['regime'].iloc[0]
             regime_allocation = regime_detector.get_regime_allocation(current_regime)
+            # Debug: Show regime info for first few dates
+            if i < 5:
+                print(f"   🔍 Date {date}: Regime={current_regime}, Allocation={regime_allocation:.2f}")
         else:
             current_regime = 'sideways'  # Default for 5-regime system
             regime_allocation = 0.8
+            if i < 5:
+                print(f"   🔍 Date {date}: No regime found, using default={current_regime}, Allocation={regime_allocation:.2f}")
         
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
@@ -597,6 +602,12 @@ def apply_regime_based_factor_weights(holdings_df, benchmark_data, config):
     regime_counts = holdings_with_regime['regime'].value_counts()
     for regime, count in regime_counts.items():
         print(f"      {regime}: {count} holdings ({count/len(holdings_with_regime)*100:.1f}%)")
+    
+    # Debug: Show sample of holdings with regimes
+    print(f"   🔍 Sample holdings with regimes (first 10):")
+    sample_holdings = holdings_with_regime[['date', 'ticker', 'regime', 'composite_score_adjusted']].head(10)
+    for _, row in sample_holdings.iterrows():
+        print(f"      {row['date']} - {row['ticker']}: {row['regime']} (score: {row['composite_score_adjusted']:.3f})")
     
     return holdings_with_regime
 
