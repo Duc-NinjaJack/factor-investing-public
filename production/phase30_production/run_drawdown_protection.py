@@ -1,13 +1,13 @@
 # %% [markdown]
-# # QVM ENGINE V3J TEARSHEET DEMONSTRATION - NO REGIME DETECTION
+# # QVM ENGINE V3J TEARSHEET DEMONSTRATION - DRAWDOWN PROTECTION
 #
 # This notebook demonstrates the QVM (Quality, Value, Momentum) factor investing strategy with comprehensive performance analysis and visualization.
 #
 # **Key Changes:** 
-# - Removed regime detection entirely (no more bull/stress period misclassification)
+# - Drawdown-based position sizing: reduces allocation based on market drawdown levels
 # - Fixed portfolio size: exactly 20 stocks per rebalancing date
 # - Uses fixed factor weights: Quality 33%, Value 33%, Momentum 34%
-# - 100% allocation at all times (no regime-based position sizing)
+# - Dynamic allocation: 100% at peak, reducing in steps as drawdown increases
 
 # %% [markdown]
 # # IMPORTS AND SETUP
@@ -32,30 +32,91 @@ sys.path.append('/home/raymond/Documents/Projects/factor-investing-public')
 from production.database.connection import DatabaseManager
 
 # %% [markdown]
-# # SIMPLIFIED STRATEGY - NO REGIME DETECTION
+# # DRAWDOWN PROTECTION STRATEGY - DYNAMIC POSITION SIZING
 
 # %%
-class SimpleStrategy:
+class DrawdownProtectionStrategy:
     """
-    Simplified QVM strategy with fixed factor weights and no regime detection.
+    QVM strategy with drawdown-based position sizing.
     """
-    def __init__(self):
-        print(f"✅ SimpleStrategy initialized with fixed factor weights:")
-        print(f"   - Quality: 33.33%")
-        print(f"   - Value: 33.33%")
-        print(f"   - Momentum: 33.34%")
-        print(f"   - Allocation: 100% (always fully invested)")
+    def __init__(self, step_size: float = 0.10):
+        self.step_size = step_size  # 10% steps for allocation changes
+        self.current_allocation = 1.0  # Start at 100%
+        self.last_allocation_change = 0.0  # Track last drawdown level for allocation change
+        
+        print(f"✅ DrawdownProtectionStrategy initialized:")
+        print(f"   - Step Size: {self.step_size:.0%} (10% increments)")
+        print(f"   - Initial Allocation: {self.current_allocation:.0%}")
+        print(f"   - Factor Weights: Quality 33.33%, Value 33.33%, Momentum 33.34%")
+        print(f"   - Drawdown Protection Levels:")
+        print(f"     5% drawdown: 20% allocation")
+        print(f"     10% drawdown: 40% allocation") 
+        print(f"     15% drawdown: 60% allocation")
+        print(f"     20% drawdown: 80% allocation")
+        print(f"     25% drawdown: 100% allocation")
+        print(f"     30%+ drawdown: 100% allocation")
     
-    def get_allocation(self) -> float:
-        """Get target allocation - always 100%."""
-        return 1.0
+    def calculate_drawdown(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
+        """Calculate drawdown for the benchmark."""
+        benchmark_data = benchmark_data.sort_values('date').copy()
+        
+        # Calculate running maximum (peak)
+        benchmark_data['running_max'] = benchmark_data['close_price'].expanding().max()
+        
+        # Calculate drawdown percentage
+        benchmark_data['drawdown_pct'] = (benchmark_data['close_price'] - benchmark_data['running_max']) / benchmark_data['running_max'] * 100
+        
+        return benchmark_data
+    
+    def get_allocation(self, benchmark_data: pd.DataFrame, date) -> float:
+        """Get target allocation based on current drawdown level."""
+        # Find the benchmark data for this date
+        date_data = benchmark_data[benchmark_data['date'] == date]
+        
+        if not date_data.empty:
+            drawdown_pct = date_data['drawdown_pct'].iloc[0]
+        else:
+            # If no data found, use the most recent available data
+            available_data = benchmark_data[benchmark_data['date'] <= date]
+            if not available_data.empty:
+                drawdown_pct = available_data.iloc[-1]['drawdown_pct']
+            else:
+                # Default to full allocation if no data available
+                return self.current_allocation
+        
+        # Determine target allocation based on drawdown level (4x tighter protection)
+        if drawdown_pct >= -5:  # 0% to -5% drawdown
+            target_allocation = 1.0
+        elif drawdown_pct >= -10:  # -5% to -10% drawdown
+            target_allocation = 0.20  # 20% allocation (80% reduction)
+        elif drawdown_pct >= -15:  # -10% to -15% drawdown
+            target_allocation = 0.40  # 40% allocation (60% reduction)
+        elif drawdown_pct >= -20:  # -15% to -20% drawdown
+            target_allocation = 0.60  # 60% allocation (40% reduction)
+        elif drawdown_pct >= -25:  # -20% to -25% drawdown
+            target_allocation = 0.80  # 80% allocation (20% reduction)
+        elif drawdown_pct >= -30:  # -25% to -30% drawdown
+            target_allocation = 1.0   # 100% allocation (no reduction)
+        else:  # -30%+ drawdown
+            target_allocation = 1.0   # 100% allocation (no reduction)
+        
+        # Only change allocation if we've moved to a new step (to reduce transaction costs)
+        current_step = int(abs(drawdown_pct) / (self.step_size * 100)) * self.step_size * 100
+        last_step = int(abs(self.last_allocation_change) / (self.step_size * 100)) * self.step_size * 100
+        
+        if current_step != last_step:
+            self.current_allocation = target_allocation
+            self.last_allocation_change = drawdown_pct
+            print(f"   📊 Drawdown: {drawdown_pct:.1f}% -> Allocation: {target_allocation:.0%}")
+        
+        return self.current_allocation
 
 # %% [markdown]
 # # CONFIGURATION
 
 # %%
 CONFIG = {
-    'strategy_name': 'QVM_Engine_v3j_No_Regime_Demo',
+    'strategy_name': 'QVM_Engine_v3j_Drawdown_Protection_Demo',
     'universe': {
         'lookback_days': 252,
         'top_n_stocks': 20,
@@ -67,11 +128,15 @@ CONFIG = {
     'rebalance_frequency': 'M',  # Monthly
     'transaction_cost_bps': 10,  # 10 basis points
     'initial_capital': 10_000_000_000,  # 10 billion VND
+    'drawdown_protection': {
+        'step_size': 0.10,        # 10% steps for allocation changes
+        'max_allocation': 1.0,    # 100% allocation at peak
+        'min_allocation': 0.20    # 20% allocation at max drawdown (4x tighter)
+    },
     'factor_weights': {
         'quality': 0.3333,    # 33.33% Quality
         'value': 0.3333,      # 33.33% Value  
         'momentum': 0.3334,   # 33.34% Momentum
-        'allocation': 1.0     # 100% always invested
     }
 }
 
@@ -153,20 +218,32 @@ benchmark_data['return'] = benchmark_data['close_price'].pct_change()
 print(f"✅ Benchmark data: {len(benchmark_data)} records")
 
 # %% [markdown]
-# # INITIALIZE SIMPLIFIED STRATEGY
+# # INITIALIZE DRAWDOWN PROTECTION STRATEGY
 
 # %%
-# Initialize simple strategy (no regime detection)
-strategy = SimpleStrategy()
-print(f"✅ Simplified strategy initialized")
+# Initialize drawdown protection strategy
+strategy = DrawdownProtectionStrategy(
+    step_size=CONFIG['drawdown_protection']['step_size']
+)
+print(f"✅ Drawdown protection strategy initialized")
+
+# Calculate drawdown for benchmark
+benchmark_data = strategy.calculate_drawdown(benchmark_data)
+print(f"✅ Drawdown calculated for benchmark")
+
+# Debug: Show some sample drawdown data
+print(f"🔍 Sample Drawdown Data:")
+sample_dd_data = benchmark_data[['date', 'close_price', 'running_max', 'drawdown_pct']].dropna().head(10)
+for _, row in sample_dd_data.iterrows():
+    print(f"   {row['date']}: Price={row['close_price']:.0f}, Peak={row['running_max']:.0f}, Drawdown={row['drawdown_pct']:.1f}%")
 
 # %% [markdown]
 # # CALCULATE PORTFOLIO RETURNS
 
 # %%
 def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config, strategy):
-    """Calculate corrected portfolio returns with fixed allocation."""
-    print("📈 Calculating corrected portfolio returns with fixed allocation...")
+    """Calculate corrected portfolio returns with drawdown-based allocation."""
+    print("📈 Calculating corrected portfolio returns with drawdown-based allocation...")
     
     # Convert dates to datetime
     holdings_df['date'] = pd.to_datetime(holdings_df['date'])
@@ -199,8 +276,8 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
         if date_holdings.empty:
             continue
         
-        # Get fixed allocation (always 100%)
-        allocation = strategy.get_allocation()
+        # Get dynamic allocation based on moving average
+        allocation = strategy.get_allocation(benchmark_data, date)
         
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
@@ -230,13 +307,22 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                     valid_holdings += 1
         
         if portfolio_value > 0 and valid_holdings > 0:
+            # Get drawdown status for this date
+            date_data = benchmark_data[benchmark_data['date'] == date]
+            if not date_data.empty:
+                drawdown_pct = date_data['drawdown_pct'].iloc[0]
+                dd_status = f"DD: {drawdown_pct:.1f}%"
+            else:
+                dd_status = "DD: N/A"
+            
             portfolio_values.append({
                 'date': date,
                 'portfolio_value': portfolio_value,
                 'capital': current_capital,
                 'valid_holdings': valid_holdings,
                 'total_holdings': len(date_holdings),
-                'allocation': allocation
+                'allocation': allocation,
+                'drawdown_status': dd_status
             })
             
             # Calculate daily returns for the period until next rebalancing
@@ -274,6 +360,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                 # Equal weight portfolio return
                                 portfolio_return = portfolio_daily_returns.mean()
                                 
+                                # Apply allocation factor to daily returns
+                                portfolio_return = portfolio_return * allocation
+                                
                                 # Apply transaction costs on rebalancing day
                                 if daily_date == date:
                                     transaction_cost = config['transaction_cost_bps'] / 10000
@@ -285,7 +374,8 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                         'date': daily_date,
                                         'portfolio_return': portfolio_return,
                                         'rebalance_date': date,
-                                        'allocation': allocation
+                                        'allocation': allocation,
+                                        'drawdown_status': dd_status
                                     })
             
             # Update capital for next period
@@ -296,7 +386,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
     
     print(f"   ✅ Portfolio values: {len(portfolio_df)} records")
     print(f"   ✅ Daily returns: {len(daily_returns_df)} records")
-    print(f"   📊 Fixed allocation applied")
+    print(f"   📊 Drawdown-based allocation applied")
     
     return portfolio_df, daily_returns_df
 
@@ -339,8 +429,47 @@ def apply_fixed_factor_weights(holdings_df, config):
 holdings_df_adjusted = apply_fixed_factor_weights(holdings_df, CONFIG)
 
 # %%
-# Calculate returns with fixed allocation
+# Calculate returns with moving average-based allocation
 portfolio_values, daily_returns = calculate_corrected_returns(holdings_df_adjusted, price_data, benchmark_data, CONFIG, strategy)
+
+# Analyze drawdown protection strategy performance
+print("\n" + "="*80)
+print("📊 DRAWDOWN PROTECTION STRATEGY ANALYSIS")
+print("="*80)
+
+# Count allocation distribution
+allocation_counts = portfolio_values['allocation'].value_counts().sort_index()
+print(f"📈 Allocation Distribution:")
+for allocation, count in allocation_counts.items():
+    percentage = count / len(portfolio_values) * 100
+    print(f"   {allocation:.0%} allocation: {count} rebalances ({percentage:.1f}%)")
+
+# Calculate average allocation
+avg_allocation = portfolio_values['allocation'].mean()
+print(f"📊 Average Allocation: {avg_allocation:.1%}")
+
+# Show some sample periods
+print(f"📅 Sample Drawdown Protection Periods:")
+sample_periods = portfolio_values[['date', 'drawdown_status', 'allocation']].head(10)
+for _, row in sample_periods.iterrows():
+    print(f"   {row['date']}: {row['drawdown_status']} (Allocation: {row['allocation']:.0%})")
+
+# Debug: Check if allocations are actually different
+unique_allocations = portfolio_values['allocation'].unique()
+print(f"🔍 Unique allocations found: {unique_allocations}")
+if len(unique_allocations) == 1:
+    print("⚠️ WARNING: Only one allocation value found! Drawdown protection strategy may not be working.")
+else:
+    print(f"✅ Drawdown protection strategy is working - multiple allocation values detected")
+
+# Debug: Check benchmark data for drawdown
+print(f"🔍 Benchmark data columns: {benchmark_data.columns.tolist()}")
+if 'drawdown_pct' in benchmark_data.columns:
+    print(f"✅ Drawdown calculated successfully")
+    print(f"   Min drawdown: {benchmark_data['drawdown_pct'].min():.1f}%")
+    print(f"   Max drawdown: {benchmark_data['drawdown_pct'].max():.1f}%")
+else:
+    print("⚠️ WARNING: Drawdown not found in benchmark data!")
 
 # %% [markdown]
 # # CALCULATE PERFORMANCE METRICS
@@ -474,8 +603,32 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     (1 + aligned_strategy_returns).cumprod().plot(ax=ax1, label='QVM Engine v3j', color='#16A085', lw=2.5)
     (1 + aligned_benchmark_returns).cumprod().plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
     
-    # No regime shading - clean equity curve
-    print("   📊 No regime detection - clean equity curve without shading")
+    # Add drawdown protection shading
+    if not diagnostics.empty and 'drawdown_status' in diagnostics.columns:
+        # Get drawdown data aligned with the returns
+        dd_data = diagnostics.reindex(aligned_strategy_returns.index, method='ffill')
+        
+        # Shade periods with reduced allocation (red with low alpha)
+        reduced_allocation_periods = dd_data[dd_data['allocation'] < 1.0]
+        if not reduced_allocation_periods.empty:
+            for i, date in enumerate(reduced_allocation_periods.index):
+                if i == 0 or (date - reduced_allocation_periods.index[i-1]).days > 1:
+                    # Start of a new reduced allocation period
+                    start_date = date
+                    # Find the end of this reduced allocation period
+                    end_date = date
+                    for j in range(i+1, len(reduced_allocation_periods.index)):
+                        if (reduced_allocation_periods.index[j] - reduced_allocation_periods.index[j-1]).days == 1:
+                            end_date = reduced_allocation_periods.index[j]
+                        else:
+                            break
+                    allocation = reduced_allocation_periods.loc[date, 'allocation']
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', 
+                               label=f'Reduced Allocation ({allocation:.0%})' if i == 0 else "")
+        
+        print(f"   📊 Drawdown protection shading applied")
+    else:
+        print("   📊 No drawdown data available for shading")
     
     ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
     ax1.set_ylabel('Growth of 1 VND')
@@ -510,14 +663,23 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     ax4.set_title('1-Year Rolling Sharpe Ratio', fontweight='bold')
     ax4.grid(True, linestyle='--', alpha=0.5)
 
-    # 5. Factor Weights Analysis
+    # 5. Allocation Distribution
     ax5 = fig.add_subplot(gs[3, 0])
-    factor_weights = ['Quality', 'Value', 'Momentum']
-    factor_values = [CONFIG['factor_weights']['quality'], CONFIG['factor_weights']['value'], CONFIG['factor_weights']['momentum']]
-    ax5.bar(factor_weights, factor_values, color=['#3498DB', '#E74C3C', '#F39C12'])
-    ax5.set_title('Fixed Factor Weights', fontweight='bold')
-    ax5.set_ylabel('Weight')
-    ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+    if not diagnostics.empty and 'allocation' in diagnostics.columns:
+        allocation_counts = diagnostics['allocation'].value_counts().sort_index()
+        allocation_counts.plot(kind='bar', ax=ax5, color=['#27AE60', '#E74C3C', '#F39C12', '#3498DB', '#9B59B6', '#E67E22'])
+        ax5.set_title('Allocation Distribution', fontweight='bold')
+        ax5.set_ylabel('Number of Rebalances')
+        ax5.set_xlabel('Allocation Level')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+    else:
+        # Fallback to factor weights if no allocation data
+        factor_weights = ['Quality', 'Value', 'Momentum']
+        factor_values = [CONFIG['factor_weights']['quality'], CONFIG['factor_weights']['value'], CONFIG['factor_weights']['momentum']]
+        ax5.bar(factor_weights, factor_values, color=['#3498DB', '#E74C3C', '#F39C12'])
+        ax5.set_title('Fixed Factor Weights', fontweight='bold')
+        ax5.set_ylabel('Weight')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
 
     # 6. Portfolio Size Evolution
     ax6 = fig.add_subplot(gs[3, 1])
@@ -580,7 +742,7 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 
 # %%
 # Dynamic filename generation
-def get_output_filenames(prefix="04a", suffix="no_regime"):
+def get_output_filenames(prefix="04c", suffix="drawdown"):
     """Generate unique filenames based on current file."""
     return {
         'portfolio_values': f"{prefix}_tearsheet_portfolio_values_{suffix}.csv",
@@ -594,7 +756,7 @@ results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
 # Get dynamic filenames
-filenames = get_output_filenames("04a", "no_regime")
+filenames = get_output_filenames("04c", "drawdown")
 
 portfolio_values.to_csv(results_dir / filenames['portfolio_values'], index=False)
 daily_returns.to_csv(results_dir / filenames['daily_returns'], index=False)
@@ -692,7 +854,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Save the plot
     results_dir = Path("docs")
-    filenames = get_output_filenames("04a", "no_regime")
+    filenames = get_output_filenames("04b", "moving_avg")
     plt.savefig(results_dir / filenames['equity_curve'], dpi=300, bbox_inches='tight')
     plt.show()
     
@@ -711,8 +873,8 @@ print("="*80)
 strategy_returns = daily_returns.set_index('date')['portfolio_return']
 benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
 
-# Create diagnostics DataFrame with allocation information
-diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings']].copy()
+# Create diagnostics DataFrame with allocation and drawdown information
+diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings', 'drawdown_status']].copy()
 diagnostics['portfolio_size'] = diagnostics['valid_holdings']
 diagnostics = diagnostics.set_index('date')
 

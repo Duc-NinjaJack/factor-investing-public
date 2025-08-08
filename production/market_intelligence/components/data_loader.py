@@ -399,3 +399,19 @@ class MarketDataLoader:
         
         df = pd.read_sql(query, self._conn, params=[date, top_n])
         return df['ticker'].tolist()
+
+    def get_latest_qvm_drawdown_portfolio(self) -> pd.DataFrame:
+        """Load the latest generated live QVM drawdown portfolio CSV from execution outputs.
+        Returns empty DataFrame if none exists.
+        """
+        try:
+            outputs_dir = PROJECT_ROOT / 'production' / 'execution' / 'outputs'
+            if not outputs_dir.exists():
+                return pd.DataFrame()
+            files = sorted(outputs_dir.glob('*_qvm_drawdown_portfolio.csv'))
+            if not files:
+                return pd.DataFrame()
+            df = pd.read_csv(files[-1])
+            return df
+        except Exception:
+            return pd.DataFrame()

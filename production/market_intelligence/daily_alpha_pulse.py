@@ -96,6 +96,22 @@ class DailyAlphaPulse:
                 logger.info("Generating trading signals...")
                 dashboard_data['signals'] = loader.get_top_signals(latest_date)
                 
+                # Live Strategy Snapshot (QVM Drawdown 04c)
+                try:
+                    latest_live = loader.get_latest_qvm_drawdown_portfolio()
+                    if latest_live is not None and not latest_live.empty:
+                        alloc = float(latest_live['allocation'].iloc[0])
+                        dd = float(latest_live['drawdown_pct'].iloc[0])
+                        dashboard_data['live_strategy'] = {
+                            'allocation': alloc,
+                            'drawdown_pct': dd,
+                            'num_names': latest_live['ticker'].nunique()
+                        }
+                    else:
+                        dashboard_data['live_strategy'] = None
+                except Exception:
+                    dashboard_data['live_strategy'] = None
+                
                 # Generate visualizations
                 logger.info("Creating visualizations...")
                 dashboard_data['charts'] = self._generate_charts(dashboard_data)
@@ -409,10 +425,33 @@ class DailyAlphaPulse:
     <div class="timestamp">
         Generated at {data['metadata']['generation_time'].strftime('%Y-%m-%d %H:%M:%S')} ICT
     </div>
-</body>
-</html>
-        """
-        
+
+        # Live Strategy Snapshot
+        if data.get('live_strategy'):
+            ls = data['live_strategy']
+            live_html = f"""
+            <div class="section">
+              <h2>🛡️ Live Strategy Snapshot (QVM 04c)</h2>
+              <div class="metric-grid">
+                <div class="metric-card">
+                  <div class="metric-value">{ls['num_names']}</div>
+                  <div>Current Names</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-value">{ls['allocation']*100:.0f}%</div>
+                  <div>Portfolio Allocation</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-value">{ls['drawdown_pct']:.1f}%</div>
+                  <div>VN-Index Drawdown</div>
+                </div>
+              </div>
+              <p style="color:#757575;">Allocation follows step-based drawdown protection (4x tighter).</p>
+            </div>
+            """
+        else:
+            live_html = ""
+
         return html_template
         
     def _generate_factor_summary_html(self, factor_df: pd.DataFrame) -> str:

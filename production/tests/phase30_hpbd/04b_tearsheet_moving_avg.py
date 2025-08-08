@@ -1,13 +1,13 @@
 # %% [markdown]
-# # QVM ENGINE V3J TEARSHEET DEMONSTRATION - NO REGIME DETECTION
+# # QVM ENGINE V3J TEARSHEET DEMONSTRATION - MOVING AVERAGE POSITION SIZING
 #
 # This notebook demonstrates the QVM (Quality, Value, Momentum) factor investing strategy with comprehensive performance analysis and visualization.
 #
 # **Key Changes:** 
-# - Removed regime detection entirely (no more bull/stress period misclassification)
+# - Moving average-based position sizing: 50% allocation when index below 60-day MA
 # - Fixed portfolio size: exactly 20 stocks per rebalancing date
 # - Uses fixed factor weights: Quality 33%, Value 33%, Momentum 34%
-# - 100% allocation at all times (no regime-based position sizing)
+# - Dynamic allocation: 100% when above MA, 50% when below MA
 
 # %% [markdown]
 # # IMPORTS AND SETUP
@@ -32,30 +32,56 @@ sys.path.append('/home/raymond/Documents/Projects/factor-investing-public')
 from production.database.connection import DatabaseManager
 
 # %% [markdown]
-# # SIMPLIFIED STRATEGY - NO REGIME DETECTION
+# # MOVING AVERAGE STRATEGY - DYNAMIC POSITION SIZING
 
 # %%
-class SimpleStrategy:
+class MovingAverageStrategy:
     """
-    Simplified QVM strategy with fixed factor weights and no regime detection.
+    QVM strategy with moving average-based position sizing.
     """
-    def __init__(self):
-        print(f"✅ SimpleStrategy initialized with fixed factor weights:")
-        print(f"   - Quality: 33.33%")
-        print(f"   - Value: 33.33%")
-        print(f"   - Momentum: 33.34%")
-        print(f"   - Allocation: 100% (always fully invested)")
+    def __init__(self, ma_period: int = 60, below_ma_allocation: float = 0.5):
+        self.ma_period = ma_period
+        self.below_ma_allocation = below_ma_allocation
+        self.above_ma_allocation = 1.0
+        
+        print(f"✅ MovingAverageStrategy initialized:")
+        print(f"   - Moving Average Period: {self.ma_period} days")
+        print(f"   - Above MA Allocation: {self.above_ma_allocation:.0%}")
+        print(f"   - Below MA Allocation: {self.below_ma_allocation:.0%}")
+        print(f"   - Factor Weights: Quality 33.33%, Value 33.33%, Momentum 33.34%")
     
-    def get_allocation(self) -> float:
-        """Get target allocation - always 100%."""
-        return 1.0
+    def calculate_moving_average(self, benchmark_data: pd.DataFrame) -> pd.DataFrame:
+        """Calculate moving average for the benchmark."""
+        benchmark_data = benchmark_data.sort_values('date').copy()
+        benchmark_data['ma_60'] = benchmark_data['close_price'].rolling(self.ma_period).mean()
+        benchmark_data['above_ma'] = benchmark_data['close_price'] > benchmark_data['ma_60']
+        return benchmark_data
+    
+    def get_allocation(self, benchmark_data: pd.DataFrame, date) -> float:
+        """Get target allocation based on moving average position."""
+        # Find the benchmark data for this date
+        date_data = benchmark_data[benchmark_data['date'] == date]
+        
+        if not date_data.empty:
+            above_ma = date_data['above_ma'].iloc[0]
+            return self.above_ma_allocation if above_ma else self.below_ma_allocation
+        else:
+            # If no data found, use the most recent available data
+            available_data = benchmark_data[benchmark_data['date'] <= date]
+            if not available_data.empty:
+                latest_data = available_data.iloc[-1]
+                above_ma = latest_data['above_ma']
+                return self.above_ma_allocation if above_ma else self.below_ma_allocation
+            else:
+                # Default to full allocation if no data available
+                return self.above_ma_allocation
 
 # %% [markdown]
 # # CONFIGURATION
 
 # %%
 CONFIG = {
-    'strategy_name': 'QVM_Engine_v3j_No_Regime_Demo',
+    'strategy_name': 'QVM_Engine_v3j_Moving_Avg_Demo',
     'universe': {
         'lookback_days': 252,
         'top_n_stocks': 20,
@@ -67,11 +93,15 @@ CONFIG = {
     'rebalance_frequency': 'M',  # Monthly
     'transaction_cost_bps': 10,  # 10 basis points
     'initial_capital': 10_000_000_000,  # 10 billion VND
+    'moving_average': {
+        'period': 60,         # 60-day moving average
+        'below_ma_allocation': 0.5,  # 50% allocation when below MA
+        'above_ma_allocation': 1.0   # 100% allocation when above MA
+    },
     'factor_weights': {
         'quality': 0.3333,    # 33.33% Quality
         'value': 0.3333,      # 33.33% Value  
         'momentum': 0.3334,   # 33.34% Momentum
-        'allocation': 1.0     # 100% always invested
     }
 }
 
@@ -153,20 +183,33 @@ benchmark_data['return'] = benchmark_data['close_price'].pct_change()
 print(f"✅ Benchmark data: {len(benchmark_data)} records")
 
 # %% [markdown]
-# # INITIALIZE SIMPLIFIED STRATEGY
+# # INITIALIZE MOVING AVERAGE STRATEGY
 
 # %%
-# Initialize simple strategy (no regime detection)
-strategy = SimpleStrategy()
-print(f"✅ Simplified strategy initialized")
+# Initialize moving average strategy
+strategy = MovingAverageStrategy(
+    ma_period=CONFIG['moving_average']['period'],
+    below_ma_allocation=CONFIG['moving_average']['below_ma_allocation']
+)
+print(f"✅ Moving average strategy initialized")
+
+# Calculate moving average for benchmark
+benchmark_data = strategy.calculate_moving_average(benchmark_data)
+print(f"✅ Moving average calculated for benchmark")
+
+# Debug: Show some sample moving average data
+print(f"🔍 Sample Moving Average Data:")
+sample_ma_data = benchmark_data[['date', 'close_price', 'ma_60', 'above_ma']].dropna().head(10)
+for _, row in sample_ma_data.iterrows():
+    print(f"   {row['date']}: Price={row['close_price']:.0f}, MA={row['ma_60']:.0f}, Above_MA={row['above_ma']}")
 
 # %% [markdown]
 # # CALCULATE PORTFOLIO RETURNS
 
 # %%
 def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config, strategy):
-    """Calculate corrected portfolio returns with fixed allocation."""
-    print("📈 Calculating corrected portfolio returns with fixed allocation...")
+    """Calculate corrected portfolio returns with moving average-based allocation."""
+    print("📈 Calculating corrected portfolio returns with moving average-based allocation...")
     
     # Convert dates to datetime
     holdings_df['date'] = pd.to_datetime(holdings_df['date'])
@@ -199,8 +242,8 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
         if date_holdings.empty:
             continue
         
-        # Get fixed allocation (always 100%)
-        allocation = strategy.get_allocation()
+        # Get dynamic allocation based on moving average
+        allocation = strategy.get_allocation(benchmark_data, date)
         
         # Get prices for this date from the forward-filled matrix
         if date in price_matrix.index:
@@ -230,13 +273,17 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                     valid_holdings += 1
         
         if portfolio_value > 0 and valid_holdings > 0:
+            # Get MA status for this date
+            ma_status = "Above MA" if allocation == 1.0 else "Below MA"
+            
             portfolio_values.append({
                 'date': date,
                 'portfolio_value': portfolio_value,
                 'capital': current_capital,
                 'valid_holdings': valid_holdings,
                 'total_holdings': len(date_holdings),
-                'allocation': allocation
+                'allocation': allocation,
+                'ma_status': ma_status
             })
             
             # Calculate daily returns for the period until next rebalancing
@@ -274,6 +321,9 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                 # Equal weight portfolio return
                                 portfolio_return = portfolio_daily_returns.mean()
                                 
+                                # Apply allocation factor to daily returns
+                                portfolio_return = portfolio_return * allocation
+                                
                                 # Apply transaction costs on rebalancing day
                                 if daily_date == date:
                                     transaction_cost = config['transaction_cost_bps'] / 10000
@@ -285,7 +335,8 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                                         'date': daily_date,
                                         'portfolio_return': portfolio_return,
                                         'rebalance_date': date,
-                                        'allocation': allocation
+                                        'allocation': allocation,
+                                        'ma_status': ma_status
                                     })
             
             # Update capital for next period
@@ -296,7 +347,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
     
     print(f"   ✅ Portfolio values: {len(portfolio_df)} records")
     print(f"   ✅ Daily returns: {len(daily_returns_df)} records")
-    print(f"   📊 Fixed allocation applied")
+    print(f"   📊 Moving average-based allocation applied")
     
     return portfolio_df, daily_returns_df
 
@@ -339,8 +390,46 @@ def apply_fixed_factor_weights(holdings_df, config):
 holdings_df_adjusted = apply_fixed_factor_weights(holdings_df, CONFIG)
 
 # %%
-# Calculate returns with fixed allocation
+# Calculate returns with moving average-based allocation
 portfolio_values, daily_returns = calculate_corrected_returns(holdings_df_adjusted, price_data, benchmark_data, CONFIG, strategy)
+
+# Analyze moving average strategy performance
+print("\n" + "="*80)
+print("📊 MOVING AVERAGE STRATEGY ANALYSIS")
+print("="*80)
+
+# Count MA status distribution
+ma_counts = portfolio_values['ma_status'].value_counts()
+print(f"📈 Moving Average Status Distribution:")
+for status, count in ma_counts.items():
+    percentage = count / len(portfolio_values) * 100
+    print(f"   {status}: {count} rebalances ({percentage:.1f}%)")
+
+# Calculate average allocation
+avg_allocation = portfolio_values['allocation'].mean()
+print(f"📊 Average Allocation: {avg_allocation:.1%}")
+
+# Show some sample periods
+print(f"📅 Sample Moving Average Periods:")
+sample_periods = portfolio_values[['date', 'ma_status', 'allocation']].head(10)
+for _, row in sample_periods.iterrows():
+    print(f"   {row['date']}: {row['ma_status']} (Allocation: {row['allocation']:.0%})")
+
+# Debug: Check if allocations are actually different
+unique_allocations = portfolio_values['allocation'].unique()
+print(f"🔍 Unique allocations found: {unique_allocations}")
+if len(unique_allocations) == 1:
+    print("⚠️ WARNING: Only one allocation value found! Moving average strategy may not be working.")
+else:
+    print(f"✅ Moving average strategy is working - multiple allocation values detected")
+
+# Debug: Check benchmark data for moving average
+print(f"🔍 Benchmark data columns: {benchmark_data.columns.tolist()}")
+if 'ma_60' in benchmark_data.columns:
+    print(f"✅ Moving average calculated successfully")
+    print(f"   Sample MA values: {benchmark_data['ma_60'].dropna().head().tolist()}")
+else:
+    print("⚠️ WARNING: Moving average not found in benchmark data!")
 
 # %% [markdown]
 # # CALCULATE PERFORMANCE METRICS
@@ -474,8 +563,30 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     (1 + aligned_strategy_returns).cumprod().plot(ax=ax1, label='QVM Engine v3j', color='#16A085', lw=2.5)
     (1 + aligned_benchmark_returns).cumprod().plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
     
-    # No regime shading - clean equity curve
-    print("   📊 No regime detection - clean equity curve without shading")
+    # Add moving average shading
+    if not diagnostics.empty and 'ma_status' in diagnostics.columns:
+        # Get MA status data aligned with the returns
+        ma_data = diagnostics.reindex(aligned_strategy_returns.index, method='ffill')
+        
+        # Shade below MA periods (red with low alpha)
+        below_ma_periods = ma_data[ma_data['ma_status'] == 'Below MA']
+        if not below_ma_periods.empty:
+            for i, date in enumerate(below_ma_periods.index):
+                if i == 0 or (date - below_ma_periods.index[i-1]).days > 1:
+                    # Start of a new below MA period
+                    start_date = date
+                    # Find the end of this below MA period
+                    end_date = date
+                    for j in range(i+1, len(below_ma_periods.index)):
+                        if (below_ma_periods.index[j] - below_ma_periods.index[j-1]).days == 1:
+                            end_date = below_ma_periods.index[j]
+                        else:
+                            break
+                    ax1.axvspan(start_date, end_date, alpha=0.1, color='red', label='Below MA (50% Allocation)' if i == 0 else "")
+        
+        print(f"   📊 Moving average shading applied")
+    else:
+        print("   📊 No moving average data available for shading")
     
     ax1.set_title('Cumulative Performance (Log Scale)', fontweight='bold')
     ax1.set_ylabel('Growth of 1 VND')
@@ -510,14 +621,22 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     ax4.set_title('1-Year Rolling Sharpe Ratio', fontweight='bold')
     ax4.grid(True, linestyle='--', alpha=0.5)
 
-    # 5. Factor Weights Analysis
+    # 5. Moving Average Status Distribution
     ax5 = fig.add_subplot(gs[3, 0])
-    factor_weights = ['Quality', 'Value', 'Momentum']
-    factor_values = [CONFIG['factor_weights']['quality'], CONFIG['factor_weights']['value'], CONFIG['factor_weights']['momentum']]
-    ax5.bar(factor_weights, factor_values, color=['#3498DB', '#E74C3C', '#F39C12'])
-    ax5.set_title('Fixed Factor Weights', fontweight='bold')
-    ax5.set_ylabel('Weight')
-    ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+    if not diagnostics.empty and 'ma_status' in diagnostics.columns:
+        ma_counts = diagnostics['ma_status'].value_counts()
+        ma_counts.plot(kind='bar', ax=ax5, color=['#27AE60', '#E74C3C'])
+        ax5.set_title('Moving Average Status Distribution', fontweight='bold')
+        ax5.set_ylabel('Number of Rebalances')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
+    else:
+        # Fallback to factor weights if no MA data
+        factor_weights = ['Quality', 'Value', 'Momentum']
+        factor_values = [CONFIG['factor_weights']['quality'], CONFIG['factor_weights']['value'], CONFIG['factor_weights']['momentum']]
+        ax5.bar(factor_weights, factor_values, color=['#3498DB', '#E74C3C', '#F39C12'])
+        ax5.set_title('Fixed Factor Weights', fontweight='bold')
+        ax5.set_ylabel('Weight')
+        ax5.grid(True, axis='y', linestyle='--', alpha=0.5)
 
     # 6. Portfolio Size Evolution
     ax6 = fig.add_subplot(gs[3, 1])
@@ -580,7 +699,7 @@ def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, peri
 
 # %%
 # Dynamic filename generation
-def get_output_filenames(prefix="04a", suffix="no_regime"):
+def get_output_filenames(prefix="04b", suffix="moving_avg"):
     """Generate unique filenames based on current file."""
     return {
         'portfolio_values': f"{prefix}_tearsheet_portfolio_values_{suffix}.csv",
@@ -594,7 +713,7 @@ results_dir = Path("docs")
 results_dir.mkdir(exist_ok=True)
 
 # Get dynamic filenames
-filenames = get_output_filenames("04a", "no_regime")
+filenames = get_output_filenames("04b", "moving_avg")
 
 portfolio_values.to_csv(results_dir / filenames['portfolio_values'], index=False)
 daily_returns.to_csv(results_dir / filenames['daily_returns'], index=False)
@@ -692,7 +811,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Save the plot
     results_dir = Path("docs")
-    filenames = get_output_filenames("04a", "no_regime")
+    filenames = get_output_filenames("04b", "moving_avg")
     plt.savefig(results_dir / filenames['equity_curve'], dpi=300, bbox_inches='tight')
     plt.show()
     
@@ -711,8 +830,8 @@ print("="*80)
 strategy_returns = daily_returns.set_index('date')['portfolio_return']
 benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
 
-# Create diagnostics DataFrame with allocation information
-diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings']].copy()
+# Create diagnostics DataFrame with allocation and MA information
+diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings', 'ma_status']].copy()
 diagnostics['portfolio_size'] = diagnostics['valid_holdings']
 diagnostics = diagnostics.set_index('date')
 
