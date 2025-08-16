@@ -264,13 +264,39 @@ class DailyAlphaPulse:
         
     def _generate_html_report(self, data: Dict) -> str:
         """Generate HTML report"""
+        # Live Strategy Snapshot section (optional)
+        if data.get('live_strategy'):
+            ls = data['live_strategy']
+            live_html = f"""
+    <div class=\"section\">
+        <h2>🛡️ Live Strategy Snapshot (QVM 04c)</h2>
+        <div class=\"metric-grid\">
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{ls['num_names']}</div>
+                <div>Current Names</div>
+            </div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{ls['allocation']*100:.0f}%</div>
+                <div>Portfolio Allocation</div>
+            </div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{ls['drawdown_pct']:.1f}%</div>
+                <div>VN-Index Drawdown</div>
+            </div>
+        </div>
+        <p style=\"color:#757575;\">Allocation follows step-based drawdown protection (4x tighter).</p>
+    </div>
+            """
+        else:
+            live_html = ""
+
         # Simple HTML template (can be enhanced with Jinja2 later)
         html_template = f"""
 <!DOCTYPE html>
-<html lang="en">
+<html lang=\"en\">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset=\"UTF-8\">
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
     <title>Daily Alpha Pulse - {data['metadata']['generation_time'].strftime('%Y-%m-%d')}</title>
     <style>
         body {{ 
@@ -343,33 +369,33 @@ class DailyAlphaPulse:
     </style>
 </head>
 <body>
-    <div class="header">
+    <div class=\"header\">
         <h1>📊 Daily Alpha Pulse</h1>
         <p>Vietnam Market Intelligence • {data['metadata']['generation_time'].strftime('%A, %B %d, %Y')}</p>
         <p>Data as of: {data['metadata']['data_date'].strftime('%Y-%m-%d')}</p>
     </div>
     
-    <div class="section">
+    <div class=\"section\">
         <h2>🏢 Market Overview</h2>
-        <div class="metric-grid">
-            <div class="metric-card">
-                <div class="metric-value positive">{data['market_overview']['advances']}</div>
+        <div class=\"metric-grid\">
+            <div class=\"metric-card\">
+                <div class=\"metric-value positive\">{data['market_overview']['advances']}</div>
                 <div>Advances</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value negative">{data['market_overview']['declines']}</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value negative\">{data['market_overview']['declines']}</div>
                 <div>Declines</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value neutral">{data['market_overview']['unchanged']}</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value neutral\">{data['market_overview']['unchanged']}</div>
                 <div>Unchanged</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value {'positive' if data['market_overview']['avg_change'] > 0 else 'negative'}">{data['market_overview']['avg_change']:.2f}%</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value {'positive' if data['market_overview']['avg_change'] > 0 else 'negative'}\">{data['market_overview']['avg_change']:.2f}%</div>
                 <div>Avg Change</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value {'positive' if data['market_overview']['volume_ratio'] > 1 else 'negative'}">{data['market_overview']['volume_ratio']:.2f}x</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value {'positive' if data['market_overview']['volume_ratio'] > 1 else 'negative'}\">{data['market_overview']['volume_ratio']:.2f}x</div>
                 <div>Volume vs 20D Avg</div>
             </div>
         </div>
@@ -377,81 +403,60 @@ class DailyAlphaPulse:
         {data['charts'].get('market_breadth', '') if 'charts' in data else ''}
     </div>
     
-    <div class="section">
+    <div class=\"section\">
         <h2>🎯 Factor Performance</h2>
         {self._generate_factor_summary_html(data['factor_performance'])}
         {data['charts'].get('factor_performance', '') if 'charts' in data else ''}
     </div>
     
-    <div class="section">
+    <div class=\"section\">
         <h2>🏭 Sector Performance</h2>
         {data['charts'].get('sector_performance', '') if 'charts' in data else ''}
     </div>
     
-    <div class="section">
+    <div class=\"section\">
         <h2>🌍 Foreign Flows</h2>
         {data['charts'].get('foreign_flows', '') if 'charts' in data else ''}
     </div>
+
+    {live_html}
     
-    <div class="section">
+    <div class=\"section\">
         <h2>⚠️ Risk Metrics</h2>
-        <div class="metric-grid">
-            <div class="metric-card">
-                <div class="metric-value">{data['risk_metrics']['current_volatility']:.1f}%</div>
+        <div class=\"metric-grid\">
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{data['risk_metrics']['current_volatility']:.1f}%</div>
                 <div>Current Volatility (Ann.)</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value">{data['risk_metrics']['volatility_percentile']:.0f}%</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{data['risk_metrics']['volatility_percentile']:.0f}%</div>
                 <div>Vol Percentile</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value">{data['risk_metrics']['average_correlation']:.2f}</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{data['risk_metrics']['average_correlation']:.2f}</div>
                 <div>Avg Correlation</div>
             </div>
-            <div class="metric-card">
-                <div class="metric-value">{data['risk_metrics']['volatility_regime']}</div>
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{data['risk_metrics']['volatility_regime']}</div>
                 <div>Vol Regime</div>
             </div>
         </div>
     </div>
     
-    <div class="section">
+    <div class=\"section\">
         <h2>🚀 Top Trading Signals</h2>
-        <div class="signals-list">
+        <div class=\"signals-list\">
             {self._generate_signals_html(data['signals'])}
         </div>
     </div>
     
-    <div class="timestamp">
+    <div class=\"timestamp\">
         Generated at {data['metadata']['generation_time'].strftime('%Y-%m-%d %H:%M:%S')} ICT
     </div>
-
-        # Live Strategy Snapshot
-        if data.get('live_strategy'):
-            ls = data['live_strategy']
-            live_html = f"""
-            <div class="section">
-              <h2>🛡️ Live Strategy Snapshot (QVM 04c)</h2>
-              <div class="metric-grid">
-                <div class="metric-card">
-                  <div class="metric-value">{ls['num_names']}</div>
-                  <div>Current Names</div>
-                </div>
-                <div class="metric-card">
-                  <div class="metric-value">{ls['allocation']*100:.0f}%</div>
-                  <div>Portfolio Allocation</div>
-                </div>
-                <div class="metric-card">
-                  <div class="metric-value">{ls['drawdown_pct']:.1f}%</div>
-                  <div>VN-Index Drawdown</div>
-                </div>
-              </div>
-              <p style="color:#757575;">Allocation follows step-based drawdown protection (4x tighter).</p>
-            </div>
-            """
-        else:
-            live_html = ""
-
+</body>
+</html>
+        """
+        
         return html_template
         
     def _generate_factor_summary_html(self, factor_df: pd.DataFrame) -> str:

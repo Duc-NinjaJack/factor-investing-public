@@ -60,24 +60,53 @@ def get_latest_factor_date(engine) -> pd.Timestamp:
 
 def get_top20_holdings(engine, factor_date: pd.Timestamp) -> pd.DataFrame:
     q = text("""
-        SELECT date, ticker,
-               Quality_Composite as quality,
-               Value_Composite as value,
-               Momentum_Composite as momentum
-        FROM factor_scores_qvm
-        WHERE date = :date
+        SELECT 
+            f.date, 
+            f.ticker,
+            f.Quality_Composite as quality,
+            f.Value_Composite as value,
+            f.Momentum_Composite as momentum,
+            f.QVM_Composite as composite,
+            COALESCE(p.avg_volume_30d, 0) as avg_volume_30d,
+            COALESCE(p.avg_turnover_30d, 0) as avg_turnover_30d,
+            COALESCE(p.market_cap_bn, 0) as market_cap_bn
+        FROM factor_scores_qvm f
+        LEFT JOIN (
+            SELECT 
+                ticker,
+                AVG(total_volume) as avg_volume_30d,
+                AVG(total_volume * close_price) / 1000000000 as avg_turnover_30d,
+                AVG(market_cap) / 1000000000 as market_cap_bn
+            FROM vcsc_daily_data_complete
+            WHERE trading_date >= DATE_SUB(:factor_date, INTERVAL 30 DAY)
+            GROUP BY ticker
+        ) p ON f.ticker = p.ticker
+        WHERE f.date = :date
+        AND f.Quality_Composite IS NOT NULL
+        AND f.Value_Composite IS NOT NULL
+        AND f.Momentum_Composite IS NOT NULL
+        AND COALESCE(p.avg_turnover_30d, 0) >= 10.0  -- 10 billion VND ADTV threshold
+        ORDER BY f.QVM_Composite DESC
     """)
-    df = pd.read_sql(q, engine, params={'date': factor_date})
+    df = pd.read_sql(q, engine, params={'date': factor_date, 'factor_date': factor_date})
     if df.empty:
         return df
-    df['composite'] = (
-        df['quality'] * FACTOR_WEIGHTS['quality'] +
-        df['value'] * FACTOR_WEIGHTS['value'] +
-        df['momentum'] * FACTOR_WEIGHTS['momentum']
-    )
+    
+    # Use the pre-calculated QVM_Composite from database (as per 04c strategy)
+    # Sort by the database composite score and select top 20
     df = df.sort_values('composite', ascending=False).head(20).reset_index(drop=True)
+    
+    # Add ranking information
+    df['rank'] = range(1, len(df) + 1)
     df['base_weight'] = 1.0 / max(1, len(df))
-    return df[['date', 'ticker', 'composite', 'base_weight']]
+    
+    # Round factor scores for display (these are z-scores, not 0-1 normalized)
+    df['quality_rounded'] = df['quality'].round(3)
+    df['value_rounded'] = df['value'].round(3)
+    df['momentum_rounded'] = df['momentum'].round(3)
+    df['composite_rounded'] = df['composite'].round(3)
+    
+    return df
 
 
 def compute_vnindex_drawdown(engine) -> float:
@@ -158,13 +187,40 @@ def main(trade_date: str = None):
     holdings['drawdown_pct'] = dd_pct
     holdings['generation_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    # Save detailed portfolio
+    detailed_columns = [
+        'rank', 'ticker', 'quality_rounded', 'value_rounded', 'momentum_rounded', 
+        'composite_rounded', 'avg_volume_30d', 'avg_turnover_30d', 'market_cap_bn',
+        'target_weight', 'allocation', 'drawdown_pct', 'generation_time'
+    ]
+    
     out_name = f"{today.strftime('%Y%m%d')}_qvm_drawdown_portfolio.csv"
     out_path = OUTPUT_DIR / out_name
-    holdings[['ticker', 'target_weight', 'allocation', 'drawdown_pct', 'generation_time']].to_csv(out_path, index=False)
+    holdings[detailed_columns].to_csv(out_path, index=False)
+
+    # Save simplified version for order generation
+    simple_columns = ['ticker', 'target_weight', 'allocation', 'drawdown_pct', 'generation_time']
+    simple_out_name = f"{today.strftime('%Y%m%d')}_qvm_drawdown_orders.csv"
+    simple_out_path = OUTPUT_DIR / simple_out_name
+    holdings[simple_columns].to_csv(simple_out_path, index=False)
 
     print("✅ Live target weights generated.")
-    print(f"📄 Saved to: {out_path}")
+    print(f"📄 Detailed portfolio saved to: {out_path}")
+    print(f"📄 Order file saved to: {simple_out_path}")
     print(f"📊 Drawdown: {dd_pct:.2f}%, Allocation: {final_alloc:.0%}")
+    
+    # Print summary table
+    print(f"\n📊 TOP 20 STOCKS - QVM DRAWDOWN PROTECTION STRATEGY")
+    print(f"{'='*100}")
+    print(f"{'Rank':<4} {'Ticker':<6} {'Quality':<8} {'Value':<8} {'Momentum':<9} {'Composite':<10} {'Volume(30d)':<12} {'Turnover(Bn)':<12} {'MktCap(Bn)':<11} {'Weight':<8}")
+    print(f"{'='*100}")
+    
+    for _, row in holdings.iterrows():
+        print(f"{row['rank']:<4} {row['ticker']:<6} {row['quality_rounded']:<8.3f} {row['value_rounded']:<8.3f} "
+              f"{row['momentum_rounded']:<9.3f} {row['composite_rounded']:<10.3f} {row['avg_volume_30d']:<12,.0f} "
+              f"{row['avg_turnover_30d']:<12.2f} {row['market_cap_bn']:<11.2f} {row['target_weight']:<8.1%}")
+    
+    print(f"{'='*100}")
     return True
 
 
