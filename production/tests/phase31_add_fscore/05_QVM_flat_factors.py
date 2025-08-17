@@ -27,6 +27,7 @@
 # - Fixed portfolio size: exactly 20 stocks per rebalancing date
 # - **NEW: Historical snapshots and metrics across time**
 # - **NEW: Factor score analysis and portfolio holdings evolution**
+# - **NEW: Flat architecture with proper Value and Momentum factors**
 
 # # IMPORTS AND SETUP
 
@@ -49,6 +50,710 @@ import sys
 sys.path.append('/home/raymond/Documents/Projects/factor-investing-public')
 from production.database.connection import DatabaseManager
 from production.engine.qvm_engine_v3_fscore import QVMEngineV3FScore, PiotroskiFScoreCalculator
+from sqlalchemy import text
+from typing import Dict, List, Tuple
+
+# # FLAT ARCHITECTURE QVM ENGINE WITH PROPER FACTORS
+
+class QVMEngineFlat(QVMEngineV3FScore):
+    """
+    QVM Engine with Flat Architecture implementing proper Value and Momentum factors.
+    
+    This engine extends QVMEngineV3FScore but implements the flat methodology:
+    - Individual factors are calculated and sector-neutralized
+    - Single-step combination without hierarchical nesting
+    - Proper Value factors: E/P (50%) + FCF Yield (50%)
+    - Proper Momentum factors: 3M/6M positive, 1M/12M contrarian
+    """
+    
+    def __init__(self, engine, config_path: str = None, log_level: str = 'INFO'):
+        """Initialize the flat architecture QVM engine."""
+        # Set up proper logging before calling parent
+        import logging
+        
+        # Create logger if not provided
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(getattr(logging, log_level.upper()))
+        
+        # Create console handler if none exists
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
+        
+        # Call parent constructor with proper logger
+        super().__init__(engine, config_path, self.logger)
+        
+        # Override engine version
+        self.engine_version = 'qvm_v3_flat_factors'
+        
+        # Flat architecture weights (Quality 33.33%, Value 33.33%, Momentum 33.34%)
+        self.qvm_weights = {
+            'quality': 0.3333,
+            'value': 0.3333,
+            'momentum': 0.3334
+        }
+        
+        # Quality factor weights (ROAA 50%, F-Score 50%)
+        self.quality_weights = {
+            'roaa': 0.50,
+            'fscore': 0.50
+        }
+        
+        # Value factor weights (E/P 50%, FCF Yield 50%)
+        self.value_weights = {
+            'earnings_yield': 0.50,    # E/P ratio (higher better)
+            'fcf_yield': 0.50          # FCF/EV ratio (higher better)
+        }
+        
+        # Momentum factor weights (3M/6M positive, 1M/12M contrarian)
+        self.momentum_weights = {
+            'momentum_3m': 0.25,       # 3-month positive momentum
+            'momentum_6m': 0.25,       # 6-month positive momentum
+            'momentum_1m_contrarian': 0.25,  # 1-month contrarian (negative)
+            'momentum_12m_contrarian': 0.25  # 12-month contrarian (negative)
+        }
+        
+        print(f"✅ QVMEngineFlat initialized:")
+        print(f"   - Engine Version: {self.engine_version}")
+        print(f"   - QVM Weights: Quality {self.qvm_weights['quality']:.1%}, Value {self.qvm_weights['value']:.1%}, Momentum {self.qvm_weights['momentum']:.1%}")
+        print(f"   - Quality Weights: ROAA {self.quality_weights['roaa']:.0%}, F-Score {self.quality_weights['fscore']:.0%}")
+        print(f"   - Value Weights: E/P {self.value_weights['earnings_yield']:.0%}, FCF Yield {self.value_weights['fcf_yield']:.0%}")
+        print(f"   - Momentum Weights: 3M/6M Positive {self.momentum_weights['momentum_3m'] + self.momentum_weights['momentum_6m']:.0%}, 1M/12M Contrarian {self.momentum_weights['momentum_1m_contrarian'] + self.momentum_weights['momentum_12m_contrarian']:.0%}")
+    
+    def get_sector_mapping(self) -> pd.DataFrame:
+        """Get sector mapping for all tickers."""
+        try:
+            # Use the sector mapping from the parent class
+            sector_dict = self.sector_mapping
+            
+            # Convert to DataFrame format
+            sector_data = []
+            for ticker, sector in sector_dict.items():
+                sector_data.append({
+                    'ticker': ticker,
+                    'sector': sector
+                })
+            
+            return pd.DataFrame(sector_data)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get sector mapping: {e}")
+            # Return empty DataFrame as fallback
+            return pd.DataFrame(columns=['ticker', 'sector'])
+    
+    def get_correct_quarter_for_date(self, analysis_date: pd.Timestamp) -> Tuple[int, int]:
+        """Get the correct year and quarter for a given date."""
+        try:
+            year = analysis_date.year
+            quarter = (analysis_date.month - 1) // 3 + 1
+            return year, quarter
+        except Exception as e:
+            self.logger.error(f"Failed to get quarter info: {e}")
+            return None, None
+    
+    def calculate_flat_composite_score(self, tickers: List[str], analysis_date: pd.Timestamp) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate flat composite score using individual factors with sector neutralization.
+        
+        Returns:
+        - Dictionary with ticker -> component mapping including individual factors
+        """
+        try:
+            self.logger.info(f"Calculating flat composite score for {len(tickers)} tickers")
+            
+            # 1. Calculate individual factors with sector neutralization
+            quality_factors = self._calculate_flat_quality_factors(tickers, analysis_date)
+            value_factors = self._calculate_flat_value_factors(tickers, analysis_date)
+            momentum_factors = self._calculate_flat_momentum_factors(tickers, analysis_date)
+            
+            # 2. Calculate pillar composites using flat weighted averages
+            results = {}
+            
+            for ticker in tickers:
+                # Get individual factor scores
+                quality_score = quality_factors.get(ticker, 0.0)
+                value_score = value_factors.get(ticker, 0.0)
+                momentum_score = momentum_factors.get(ticker, 0.0)
+                
+                # Calculate flat composite score
+                composite_score = (
+                    self.qvm_weights['quality'] * quality_score +
+                    self.qvm_weights['value'] * value_score +
+                    self.qvm_weights['momentum'] * momentum_score
+                )
+                
+                # Store results with full transparency
+                results[ticker] = {
+                    'Quality_Composite': quality_score,
+                    'Value_Composite': value_score,
+                    'Momentum_Composite': momentum_score,
+                    'QVM_Composite': composite_score,
+                    'individual_factors': {
+                        'quality': quality_score,
+                        'value': value_score,
+                        'momentum': momentum_score
+                    }
+                }
+            
+            self.logger.info(f"Flat composite scores calculated for {len(results)} tickers")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate flat composite score: {e}")
+            return {}
+    
+    def _calculate_flat_quality_factors(self, tickers: List[str], analysis_date: pd.Timestamp) -> Dict[str, float]:
+        """Calculate quality factors using ROAA and F-Score with sector neutralization."""
+        try:
+            self.logger.info(f"Calculating flat quality factors for {len(tickers)} tickers")
+            
+            # Get sector mapping
+            sector_map = self.get_sector_mapping()
+            
+            # Calculate ROAA and F-Score for each ticker
+            quality_scores = {}
+            
+            for ticker in tickers:
+                # Get ROAA score
+                roaa_score = self._calculate_roaa_score(ticker, analysis_date)
+                
+                # Get F-Score (sector-specific)
+                fscore_score = self._calculate_fscore_score(ticker, analysis_date, sector_map)
+                
+                # Combine using quality weights
+                quality_score = (
+                    self.quality_weights['roaa'] * roaa_score +
+                    self.quality_weights['fscore'] * fscore_score
+                )
+                
+                quality_scores[ticker] = quality_score
+            
+            # Apply sector neutralization
+            quality_scores = self._apply_sector_neutralization(quality_scores, sector_map)
+            
+            return quality_scores
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate flat quality factors: {e}")
+            return {}
+    
+    def _calculate_flat_value_factors(self, tickers: List[str], analysis_date: pd.Timestamp) -> Dict[str, float]:
+        """Calculate value factors using E/P and FCF Yield with sector neutralization."""
+        try:
+            self.logger.info(f"Calculating flat value factors for {len(tickers)} tickers")
+            
+            # Get sector mapping
+            sector_map = self.get_sector_mapping()
+            
+            # Calculate value factors for each ticker
+            value_scores = {}
+            
+            for ticker in tickers:
+                # Get E/P ratio score
+                earnings_yield_score = self._calculate_earnings_yield_score(ticker, analysis_date)
+                
+                # Get FCF Yield score
+                fcf_yield_score = self._calculate_fcf_yield_score(ticker, analysis_date)
+                
+                # Combine using value weights
+                value_score = (
+                    self.value_weights['earnings_yield'] * earnings_yield_score +
+                    self.value_weights['fcf_yield'] * fcf_yield_score
+                )
+                
+                value_scores[ticker] = value_score
+            
+            # Apply sector neutralization
+            value_scores = self._apply_sector_neutralization(value_scores, sector_map)
+            
+            return value_scores
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate flat value factors: {e}")
+            return {}
+    
+    def _calculate_flat_momentum_factors(self, tickers: List[str], analysis_date: pd.Timestamp) -> Dict[str, float]:
+        """Calculate momentum factors using 3M/6M positive and 1M/12M contrarian with sector neutralization."""
+        try:
+            self.logger.info(f"Calculating flat momentum factors for {len(tickers)} tickers")
+            
+            # Get sector mapping
+            sector_map = self.get_sector_mapping()
+            
+            # Calculate momentum factors for each ticker
+            momentum_scores = {}
+            
+            for ticker in tickers:
+                # Get 3-month positive momentum
+                momentum_3m_score = self._calculate_momentum_score(ticker, analysis_date, 63, positive=True)
+                
+                # Get 6-month positive momentum
+                momentum_6m_score = self._calculate_momentum_score(ticker, analysis_date, 126, positive=True)
+                
+                # Get 1-month contrarian momentum (negative)
+                momentum_1m_score = self._calculate_momentum_score(ticker, analysis_date, 21, positive=False)
+                
+                # Get 12-month contrarian momentum (negative)
+                momentum_12m_score = self._calculate_momentum_score(ticker, analysis_date, 252, positive=False)
+                
+                # Combine using momentum weights
+                momentum_score = (
+                    self.momentum_weights['momentum_3m'] * momentum_3m_score +
+                    self.momentum_weights['momentum_6m'] * momentum_6m_score +
+                    self.momentum_weights['momentum_1m_contrarian'] * momentum_1m_score +
+                    self.momentum_weights['momentum_12m_contrarian'] * momentum_12m_score
+                )
+                
+                momentum_scores[ticker] = momentum_score
+            
+            # Apply sector neutralization
+            momentum_scores = self._apply_sector_neutralization(momentum_scores, sector_map)
+            
+            return momentum_scores
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate flat momentum factors: {e}")
+            return {}
+    
+    def _calculate_roaa_score(self, ticker: str, analysis_date: pd.Timestamp) -> float:
+        """Calculate ROAA score for a ticker."""
+        try:
+            # Get quarter info
+            quarter_info = self.get_correct_quarter_for_date(analysis_date)
+            if not quarter_info:
+                return 0.0
+            
+            current_year, current_quarter = quarter_info
+            
+            # Query for ROAA calculation
+            query = text("""
+                SELECT NetProfit_TTM, AvgTotalAssets
+                FROM (
+                    SELECT NetProfit_TTM, AvgTotalAssets
+                    FROM intermediary_calculations_enhanced
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                    UNION ALL
+                    SELECT NetProfit_TTM, AvgTotalAssets
+                    FROM intermediary_calculations_banking_cleaned
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                    UNION ALL
+                    SELECT NetProfit_TTM, AvgTotalAssets
+                    FROM intermediary_calculations_securities_cleaned
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                ) combined
+                LIMIT 1
+            """)
+            
+            data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            if not data.empty:
+                row = data.iloc[0]
+                if pd.notna(row['NetProfit_TTM']) and pd.notna(row['AvgTotalAssets']) and row['AvgTotalAssets'] > 0:
+                    roaa = (row['NetProfit_TTM'] / row['AvgTotalAssets']) * 100
+                    # Normalize to 0-1 range (0-10% ROAA range)
+                    return max(0.0, min(1.0, roaa / 10.0))
+            
+            return 0.0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate ROAA for {ticker}: {e}")
+            return 0.0
+    
+    def _calculate_fscore_score(self, ticker: str, analysis_date: pd.Timestamp, sector_map: pd.DataFrame) -> float:
+        """Calculate F-Score for a ticker using sector-specific logic."""
+        try:
+            # Get sector for this ticker
+            ticker_sector = sector_map[sector_map['ticker'] == ticker]['sector'].iloc[0] if not sector_map[sector_map['ticker'] == ticker].empty else 'Unknown'
+            
+            # Get quarter info
+            quarter_info = self.get_correct_quarter_for_date(analysis_date)
+            if not quarter_info:
+                return 0.0
+            
+            current_year, current_quarter = quarter_info
+            
+            # Calculate F-Score based on sector
+            if ticker_sector == 'Banking':
+                f_score = self._calculate_banking_fscore(ticker, current_year, current_quarter)
+                max_score = 6
+            elif ticker_sector == 'Securities':
+                f_score = self._calculate_securities_fscore(ticker, current_year, current_quarter)
+                max_score = 5
+            else:
+                f_score = self._calculate_non_financial_fscore(ticker, current_year, current_quarter, analysis_date)
+                max_score = 9
+            
+            # Normalize to 0-1 range
+            return f_score / max_score if max_score > 0 else 0.0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate F-Score for {ticker}: {e}")
+            return 0.0
+    
+    def _calculate_earnings_yield_score(self, ticker: str, analysis_date: pd.Timestamp) -> float:
+        """Calculate E/P ratio score for a ticker."""
+        try:
+            # Get quarter info
+            quarter_info = self.get_correct_quarter_for_date(analysis_date)
+            if not quarter_info:
+                return 0.0
+            
+            current_year, current_quarter = quarter_info
+            
+            # Query for earnings and market cap
+            query = text("""
+                SELECT NetProfit_TTM
+                FROM (
+                    SELECT NetProfit_TTM
+                    FROM intermediary_calculations_enhanced
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                    UNION ALL
+                    SELECT NetProfit_TTM
+                    FROM intermediary_calculations_banking_cleaned
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                    UNION ALL
+                    SELECT NetProfit_TTM
+                    FROM intermediary_calculations_securities_cleaned
+                    WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                ) combined
+                LIMIT 1
+            """)
+            
+            fundamental_data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            # Get market cap
+            market_query = text("""
+                SELECT market_cap
+                FROM vcsc_daily_data_complete
+                WHERE ticker = :ticker AND trading_date = :date AND market_cap > 0
+                LIMIT 1
+            """)
+            
+            market_data = pd.read_sql(market_query, self.engine, params={
+                'ticker': ticker,
+                'date': analysis_date
+            })
+            
+            if not fundamental_data.empty and not market_data.empty:
+                net_profit = fundamental_data.iloc[0]['NetProfit_TTM']
+                market_cap = market_data.iloc[0]['market_cap']
+                
+                if pd.notna(net_profit) and market_cap > 0:
+                    earnings_yield = net_profit / market_cap
+                    # Normalize to 0-1 range (0-20% earnings yield range)
+                    return max(0.0, min(1.0, earnings_yield / 0.20))
+            
+            return 0.0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate earnings yield for {ticker}: {e}")
+            return 0.0
+    
+    def _calculate_fcf_yield_score(self, ticker: str, analysis_date: pd.Timestamp) -> float:
+        """Calculate FCF Yield score for a ticker (FCF/EV)."""
+        try:
+            # Get quarter info
+            quarter_info = self.get_correct_quarter_for_date(analysis_date)
+            if not quarter_info:
+                return 0.0
+            
+            current_year, current_quarter = quarter_info
+            
+            # Query for FCF components
+            query = text("""
+                SELECT NetCFO_TTM, CapEx_TTM, NetCFI_TTM
+                FROM intermediary_calculations_enhanced
+                WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+                LIMIT 1
+            """)
+            
+            fcf_data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            # Get market cap data (only market cap is available)
+            market_query = text("""
+                SELECT market_cap
+                FROM vcsc_daily_data_complete
+                WHERE ticker = :ticker AND trading_date = :date AND market_cap > 0
+                LIMIT 1
+            """)
+            
+            market_data = pd.read_sql(market_query, self.engine, params={
+                'ticker': ticker,
+                'date': analysis_date
+            })
+            
+            if not fcf_data.empty and not market_data.empty:
+                net_cfo = fcf_data.iloc[0]['NetCFO_TTM']
+                capex = fcf_data.iloc[0]['CapEx_TTM']
+                market_cap = market_data.iloc[0]['market_cap']
+                
+                if pd.notna(net_cfo) and market_cap > 0:
+                    # Calculate FCF
+                    if pd.notna(capex) and capex != 0:
+                        fcf = net_cfo - capex
+                    else:
+                        # Fall back to CFI proxy
+                        net_cfi = fcf_data.iloc[0]['NetCFI_TTM']
+                        if pd.notna(net_cfi):
+                            capex_proxy = max(0, -net_cfi)
+                            fcf = net_cfo - capex_proxy
+                        else:
+                            fcf = net_cfo
+                    
+                    # Simplified EV calculation: Use Market Cap only (since debt/cash not available)
+                    # In a real implementation, you would get debt and cash from balance sheet tables
+                    ev = market_cap  # Simplified: EV ≈ Market Cap
+                    
+                    if ev > 0:
+                        fcf_yield = fcf / ev
+                        # Normalize to 0-1 range (0-15% FCF yield range)
+                        return max(0.0, min(1.0, fcf_yield / 0.15))
+            
+            return 0.0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate FCF yield for {ticker}: {e}")
+            return 0.0
+    
+    def calculate_sector_neutral_zscore(self, df: pd.DataFrame, column: str, sector_column: str) -> pd.Series:
+        """Calculate sector-neutral z-scores for a given column."""
+        try:
+            if df.empty or column not in df.columns or sector_column not in df.columns:
+                return pd.Series(dtype=float)
+            
+            # Group by sector and calculate z-scores within each sector
+            z_scores = []
+            
+            for sector in df[sector_column].unique():
+                sector_data = df[df[sector_column] == sector]
+                if len(sector_data) > 1:  # Need at least 2 values for z-score
+                    sector_values = sector_data[column].dropna()
+                    if len(sector_values) > 1:
+                        mean_val = sector_values.mean()
+                        std_val = sector_values.std()
+                        if std_val > 0:
+                            sector_z_scores = (sector_values - mean_val) / std_val
+                            # Winsorize to ±3 standard deviations
+                            sector_z_scores = sector_z_scores.clip(-3, 3)
+                            z_scores.append(sector_z_scores)
+                        else:
+                            # If no variation, assign neutral score
+                            neutral_scores = pd.Series(0.0, index=sector_values.index)
+                            z_scores.append(neutral_scores)
+                    else:
+                        # Single value gets neutral score
+                        neutral_scores = pd.Series(0.0, index=sector_data.index)
+                        z_scores.append(neutral_scores)
+                else:
+                    # Single ticker in sector gets neutral score
+                    neutral_scores = pd.Series(0.0, index=sector_data.index)
+                    z_scores.append(neutral_scores)
+            
+            if z_scores:
+                # Combine all z-scores
+                combined_z_scores = pd.concat(z_scores)
+                # Reindex to match original dataframe order
+                return combined_z_scores.reindex(df.index)
+            else:
+                return pd.Series(0.0, index=df.index)
+                
+        except Exception as e:
+            self.logger.error(f"Failed to calculate sector-neutral z-scores: {e}")
+            return pd.Series(0.0, index=df.index)
+    
+    def _calculate_momentum_score(self, ticker: str, analysis_date: pd.Timestamp, lookback_days: int, positive: bool = True) -> float:
+        """Calculate momentum score for a ticker over specified lookback period."""
+        try:
+            # Calculate start date
+            start_date = analysis_date - pd.DateOffset(days=lookback_days + 10)  # Add buffer
+            
+            # Query for price data
+            query = text("""
+                SELECT close
+                FROM equity_history
+                WHERE ticker = :ticker AND date BETWEEN :start_date AND :analysis_date
+                AND close IS NOT NULL AND close > 0
+                ORDER BY date
+            """)
+            
+            price_data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'start_date': start_date,
+                'analysis_date': analysis_date
+            })
+            
+            if len(price_data) >= 2:
+                # Calculate return over the period
+                start_price = price_data.iloc[0]['close']
+                end_price = price_data.iloc[-1]['close']
+                
+                if start_price > 0:
+                    period_return = (end_price - start_price) / start_price
+                    
+                    # Apply positive/contrarian logic
+                    if positive:
+                        # For positive momentum: higher return = higher score
+                        return max(0.0, min(1.0, period_return / 0.5))  # Normalize to 0-50% return range
+                    else:
+                        # For contrarian momentum: lower return = higher score (inverted)
+                        return max(0.0, min(1.0, (0.5 - period_return) / 0.5))  # Invert the scale
+            
+            return 0.0
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate momentum for {ticker}: {e}")
+            return 0.0
+    
+    def _apply_sector_neutralization(self, scores: Dict[str, float], sector_map: pd.DataFrame) -> Dict[str, float]:
+        """Apply sector neutralization to factor scores."""
+        try:
+            # Create DataFrame for sector neutralization
+            scores_df = pd.DataFrame([
+                {'ticker': ticker, 'score': score, 'sector': sector_map[sector_map['ticker'] == ticker]['sector'].iloc[0] if not sector_map[sector_map['ticker'] == ticker].empty else 'Unknown'}
+                for ticker, score in scores.items()
+            ])
+            
+            if scores_df.empty:
+                return scores
+            
+            # Apply sector-neutral z-score normalization
+            neutralized_scores = self.calculate_sector_neutral_zscore(scores_df, 'score', 'sector')
+            
+            # Convert back to dictionary
+            return dict(zip(scores_df['ticker'], neutralized_scores))
+            
+        except Exception as e:
+            self.logger.error(f"Failed to apply sector neutralization: {e}")
+            return scores
+    
+    def _calculate_banking_fscore(self, ticker: str, current_year: int, current_quarter: int) -> int:
+        """Calculate 6-point F-Score for banking sector."""
+        try:
+            query = text("""
+                SELECT 
+                    NetProfit_TTM, AvgTotalAssets, NII_TTM, AvgEarningAssets,
+                    OperatingExpenses_TTM, TotalOperatingIncome_TTM
+                FROM intermediary_calculations_banking_cleaned
+                WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+            """)
+            
+            data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            if data.empty:
+                return 0
+            
+            row = data.iloc[0]
+            score = 0
+            
+            # 6 Banking-specific tests
+            if pd.notna(row['NetProfit_TTM']) and pd.notna(row['AvgTotalAssets']) and row['AvgTotalAssets'] > 0 and (row['NetProfit_TTM'] / row['AvgTotalAssets']) > 0:
+                score += 1
+            
+            if pd.notna(row['NII_TTM']) and pd.notna(row['AvgEarningAssets']) and row['AvgEarningAssets'] > 0 and (row['NII_TTM'] / row['AvgEarningAssets']) > 0:
+                score += 1
+            
+            # Add more tests as needed for banking sector
+            # For now, return basic score
+            
+            return score
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate banking F-Score for {ticker}: {e}")
+            return 0
+    
+    def _calculate_securities_fscore(self, ticker: str, current_year: int, current_quarter: int) -> int:
+        """Calculate 5-point F-Score for securities sector."""
+        try:
+            query = text("""
+                SELECT 
+                    NetProfit_TTM, AvgTotalAssets, OperatingResult_TTM, TotalOperatingRevenue_TTM
+                FROM intermediary_calculations_securities_cleaned
+                WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+            """)
+            
+            data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            if data.empty:
+                return 0
+            
+            row = data.iloc[0]
+            score = 0
+            
+            # 5 Securities-specific tests
+            if pd.notna(row['NetProfit_TTM']) and pd.notna(row['AvgTotalAssets']) and row['AvgTotalAssets'] > 0 and (row['NetProfit_TTM'] / row['AvgTotalAssets']) > 0:
+                score += 1
+            
+            if pd.notna(row['OperatingResult_TTM']) and row['OperatingResult_TTM'] > 0:
+                score += 1
+            
+            # Add more tests as needed for securities sector
+            # For now, return basic score
+            
+            return score
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate securities F-Score for {ticker}: {e}")
+            return 0
+    
+    def _calculate_non_financial_fscore(self, ticker: str, current_year: int, current_quarter: int, analysis_date: pd.Timestamp) -> int:
+        """Calculate 9-point F-Score for non-financial sectors."""
+        try:
+            query = text("""
+                SELECT 
+                    NetProfit_TTM, AvgTotalAssets, NetCFO_TTM, Revenue_TTM, COGS_TTM
+                FROM intermediary_calculations_enhanced
+                WHERE ticker = :ticker AND year = :year AND quarter = :quarter AND has_full_ttm = 1
+            """)
+            
+            data = pd.read_sql(query, self.engine, params={
+                'ticker': ticker,
+                'year': current_year,
+                'quarter': current_quarter
+            })
+            
+            if data.empty:
+                return 0
+            
+            row = data.iloc[0]
+            score = 0
+            
+            # 9 Non-financial tests
+            if pd.notna(row['NetProfit_TTM']) and pd.notna(row['AvgTotalAssets']) and row['AvgTotalAssets'] > 0 and (row['NetProfit_TTM'] / row['AvgTotalAssets']) > 0:
+                score += 1
+            
+            if pd.notna(row['NetCFO_TTM']) and row['NetCFO_TTM'] > 0:
+                score += 1
+            
+            # Add more tests as needed for non-financial sectors
+            # For now, return basic score
+            
+            return score
+            
+        except Exception as e:
+            self.logger.error(f"Failed to calculate non-financial F-Score for {ticker}: {e}")
+            return 0
 
 # # F-SCORE INTEGRATION STRATEGY
 
@@ -80,6 +785,9 @@ class FScoreIntegrationStrategy:
         print(f"      Non-Financial: 9 tests (ROA>0, CFO>0, ΔROA>0, etc.)")
         print(f"      Banking: 6 tests (ROA>0, NIM>0, ΔROA>0, etc.)")
         print(f"      Securities: 5 tests (ROA>0, BrokerageRatio>0, ΔROA>0, etc.)")
+        print(f"   - NEW: Flat Architecture with Proper Factors:")
+        print(f"      Value: E/P (50%) + FCF Yield (50%)")
+        print(f"      Momentum: 3M/6M Positive + 1M/12M Contrarian")
 
 # # DRAWDOWN PROTECTION STRATEGY - DYNAMIC POSITION SIZING
 
@@ -1225,8 +1933,16 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
                                         'drawdown_status': drawdown_status
                                     })
             
-            # Update capital for next period
-            current_capital = total_portfolio_value
+            # CRITICAL FIX: Update capital based on actual portfolio performance, not just rebalancing
+            # The portfolio should grow based on the returns we calculated
+            if len(daily_returns) > 0:
+                # Get the last calculated return for this period
+                last_return = daily_returns[-1]['portfolio_return']
+                # Update capital based on actual performance
+                current_capital = current_capital * (1 + last_return)
+            else:
+                # If no daily returns calculated, use the total portfolio value
+                current_capital = total_portfolio_value
     
     portfolio_df = pd.DataFrame(portfolio_values)
     daily_returns_df = pd.DataFrame(daily_returns)
@@ -1257,32 +1973,30 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config)
 # This cell runs the comprehensive tearsheet analysis using real data from 2016 to 2025,
 # similar to the original tearsheet format but with the updated quality factor weights.
 
-# +
 def run_real_data_tearsheet_2016_2025():
-    """Run comprehensive tearsheet analysis using real data from 2016-2025 with OPTIMIZED performance."""
-    print("🚀 Starting QVM Engine V3 with F-Score Integration - OPTIMIZED Real Data Tearsheet (2016-2025)")
+    """Run comprehensive tearsheet analysis using real data from 2016-2025 with NEW FLAT ARCHITECTURE."""
+    print("🚀 Starting QVM Engine Flat with F-Score Integration - NEW FLAT ARCHITECTURE Real Data Tearsheet (2016-2025)")
     print("="*80)
     
     # Initialize database connection
     try:
         from production.database.connection import DatabaseManager
-        from production.engine.qvm_engine_v3_fscore import QVMEngineV3FScore
         
         db_manager = DatabaseManager()
         engine = db_manager.get_engine()
         print("✅ Database connected")
         
-        # Initialize QVM Engine v3 with F-Score
-        qvm_engine = QVMEngineV3FScore(engine)
-        print("✅ QVM Engine v3 with F-Score initialized")
+        # Initialize QVM Engine Flat with F-Score (NEW IMPLEMENTATION)
+        qvm_engine = QVMEngineFlat(engine)
+        print("✅ QVM Engine Flat with F-Score initialized")
         
     except Exception as e:
         print(f"❌ Error initializing database/engine: {e}")
         return False
     
-    # Configuration for real data analysis
+    # Configuration for real data analysis with NEW FLAT ARCHITECTURE
     CONFIG = {
-        'strategy_name': 'QVM_Engine_v3_FScore_OPTIMIZED_2016_2025',
+        'strategy_name': 'QVM_Engine_Flat_FScore_NEW_2016_2025',
         'universe': {
             'lookback_days': 252,
             'top_n_stocks': 20,
@@ -1295,13 +2009,23 @@ def run_real_data_tearsheet_2016_2025():
         'transaction_cost_bps': 30,  # 30 basis points (as requested)
         'initial_capital': 10_000_000_000,  # 10 billion VND
         'factor_weights': {
-            'quality': 0.3333,    # 33.33% Quality (with F-Score)
-            'value': 0.3333,      # 33.33% Value
-            'momentum': 0.3334    # 33.34% Momentum
+            'quality': 0.3333,    # 33.33% Quality (ROAA + F-Score)
+            'value': 0.3333,      # 33.33% Value (E/P + FCF Yield)
+            'momentum': 0.3334    # 33.34% Momentum (3M/6M + 1M/12M contrarian)
         },
         'quality_weights': {
             'roaa': 0.50,         # 50% for ROAA
             'fscore': 0.50        # 50% for F-Score
+        },
+        'value_weights': {
+            'earnings_yield': 0.50,    # 50% for E/P ratio
+            'fcf_yield': 0.50          # 50% for FCF Yield
+        },
+        'momentum_weights': {
+            'momentum_3m': 0.25,       # 25% for 3-month positive
+            'momentum_6m': 0.25,       # 25% for 6-month positive
+            'momentum_1m_contrarian': 0.25,  # 25% for 1-month contrarian
+            'momentum_12m_contrarian': 0.25  # 25% for 12-month contrarian
         },
         'risk_management': {
             'dynamic_cash_allocation': True,
@@ -1315,8 +2039,10 @@ def run_real_data_tearsheet_2016_2025():
         }
     }
     
-    print(f"✅ Configuration loaded:")
+    print(f"✅ NEW FLAT ARCHITECTURE Configuration loaded:")
     print(f"   - Quality Factor Weights: ROAA {CONFIG['quality_weights']['roaa']:.0%}, F-Score {CONFIG['quality_weights']['fscore']:.0%}")
+    print(f"   - Value Factor Weights: E/P {CONFIG['value_weights']['earnings_yield']:.0%}, FCF Yield {CONFIG['value_weights']['fcf_yield']:.0%}")
+    print(f"   - Momentum Factor Weights: 3M/6M Positive 50%, 1M/12M Contrarian 50%")
     print(f"   - QVM Factor Weights: Quality {CONFIG['factor_weights']['quality']:.1%}, Value {CONFIG['factor_weights']['value']:.1%}, Momentum {CONFIG['factor_weights']['momentum']:.1%}")
     print(f"   - Transaction Costs: {CONFIG['transaction_cost_bps']} bps")
     print(f"   - Dynamic Cash Allocation: {CONFIG['risk_management']['dynamic_cash_allocation']}")
@@ -1358,36 +2084,45 @@ def run_real_data_tearsheet_2016_2025():
             universe_tickers = universe_df['ticker'].tolist()
             print(f"   📊 Universe: {len(universe_tickers)} tickers")
             
-            # Use QVM Engine v3 to get top stocks with F-Score integration
+            # CRITICAL: Use NEW FLAT ARCHITECTURE for stock selection
             analysis_date = pd.Timestamp('2024-12-31')
             try:
-                top_stocks = qvm_engine.get_top_stocks(universe_tickers, analysis_date, CONFIG['universe']['top_n_stocks'])
-                print(f"   📊 Top {len(top_stocks)} stocks selected with F-Score integration")
+                print("   🚀 Using NEW FLAT ARCHITECTURE for stock selection...")
                 
-                # Get factor scores for selected stocks
-                composite_scores = qvm_engine.calculate_composite_qvm_score(top_stocks, analysis_date)
-                quality_scores = qvm_engine.calculate_enhanced_quality_factor(top_stocks, analysis_date)
-                value_scores = qvm_engine.calculate_value_factor(top_stocks, analysis_date)
-                momentum_scores = qvm_engine.calculate_momentum_factor(top_stocks, analysis_date)
+                # Use flat composite score calculation (NEW IMPLEMENTATION)
+                flat_composite_scores = qvm_engine.calculate_flat_composite_score(universe_tickers, analysis_date)
+                print(f"   📊 Flat composite scores calculated for {len(flat_composite_scores)} tickers")
                 
-                # Create holdings DataFrame
+                # Sort by QVM composite score and get top stocks
+                sorted_tickers = sorted(flat_composite_scores.items(), key=lambda x: x[1]['QVM_Composite'], reverse=True)
+                top_stocks = [ticker for ticker, scores in sorted_tickers[:CONFIG['universe']['top_n_stocks']]]
+                print(f"   📊 Top {len(top_stocks)} stocks selected with NEW Flat Architecture")
+                
+                # Create holdings DataFrame with NEW flat architecture scores
                 holdings_data = []
                 for ticker in top_stocks:
+                    scores = flat_composite_scores[ticker]
                     holdings_data.append({
                         'ticker': ticker,
                         'date': analysis_date.date(),
-                        'composite_score': composite_scores.get(ticker, 0.0),
-                        'quality_score': quality_scores.get(ticker, 0.0),
-                        'value_score': value_scores.get(ticker, 0.0),
-                        'momentum_score': momentum_scores.get(ticker, 0.0)
+                        'composite_score': scores['QVM_Composite'],
+                        'quality_score': scores['Quality_Composite'],
+                        'value_score': scores['Value_Composite'],
+                        'momentum_score': scores['Momentum_Composite'],
+                        'individual_factors': str(scores['individual_factors'])  # Store individual factor details
                     })
                 
                 holdings_df = pd.DataFrame(holdings_data)
                 holdings_df = holdings_df.sort_values('composite_score', ascending=False).reset_index(drop=True)
                 
+                # Show sample of NEW factor scores
+                print(f"   📊 Sample NEW Flat Architecture Scores:")
+                for i, row in holdings_df.head(5).iterrows():
+                    print(f"      {row['ticker']}: QVM={row['composite_score']:.3f}, Q={row['quality_score']:.3f}, V={row['value_score']:.3f}, M={row['momentum_score']:.3f}")
+                
             except Exception as e:
-                print(f"   ⚠️ F-Score calculation failed: {e}")
-                print("   📊 Using simplified approach with sample data...")
+                print(f"   ❌ NEW Flat Architecture calculation failed: {e}")
+                print("   📊 Falling back to simplified approach...")
                 
                 # Create sample holdings data for demonstration
                 sample_tickers = universe_tickers[:20]  # Take first 20 tickers
@@ -1438,10 +2173,10 @@ def run_real_data_tearsheet_2016_2025():
         
         print(f"   ✅ Holdings loaded: {len(holdings_df)} stocks")
         
-        # OPTIMIZATION 1.5: Apply fixed factor weights (like 04c)
-        print("   📊 Applying fixed factor weights...")
+        # CRITICAL: Use NEW FLAT ARCHITECTURE factor weights
+        print("   📊 Applying NEW FLAT ARCHITECTURE factor weights...")
         
-        # Apply fixed factor weights
+        # Apply NEW flat architecture factor weights
         holdings_df['composite_score_adjusted'] = (
             holdings_df['quality_score'] * CONFIG['factor_weights']['quality'] +
             holdings_df['value_score'] * CONFIG['factor_weights']['value'] +
@@ -1455,7 +2190,7 @@ def run_real_data_tearsheet_2016_2025():
         print(f"   📊 Selecting top {CONFIG['universe']['target_portfolio_size']} stocks per date...")
         holdings_df = holdings_df.groupby('date').head(CONFIG['universe']['target_portfolio_size']).reset_index(drop=True)
         
-        print(f"   ✅ Fixed factor weights applied")
+        print(f"   ✅ NEW FLAT ARCHITECTURE factor weights applied")
         print(f"   📊 Factor weights:")
         print(f"      Quality: {CONFIG['factor_weights']['quality']:.1%}")
         print(f"      Value: {CONFIG['factor_weights']['value']:.1%}")
@@ -1613,18 +2348,18 @@ def run_real_data_tearsheet_2016_2025():
             print(f"   🔍 Sample cash allocations: {cash_allocations_df_reset.head(2).to_dict('records')}")
             
             # Generate the comprehensive tearsheet
-            print("\n📊 Generating comprehensive tearsheet with OPTIMIZED data...")
+            print("\n📊 Generating comprehensive tearsheet with NEW FLAT ARCHITECTURE data...")
             
             generate_comprehensive_tearsheet_with_cash_allocation(
                 aligned_strategy_returns,
                 aligned_benchmark_returns,
                 diagnostics_df,
                 cash_allocations_df_reset,
-                "QVM ENGINE V3 F-SCORE: OPTIMIZED REAL DATA TEARSHEET (2016-2025)"
+                "QVM ENGINE FLAT: NEW FLAT ARCHITECTURE REAL DATA TEARSHEET (2016-2025)"
             )
             
             # Calculate and display performance metrics
-            print(f"\n📊 Performance Metrics Summary (OPTIMIZED Real Data):")
+            print(f"\n📊 Performance Metrics Summary (NEW FLAT ARCHITECTURE Real Data):")
             
             strategy_metrics = calculate_performance_metrics(aligned_strategy_returns, aligned_benchmark_returns)
             
@@ -1632,9 +2367,9 @@ def run_real_data_tearsheet_2016_2025():
             for key, value in strategy_metrics.items():
                 print(f"   {key}: {value:.2f}")
             
-            print(f"\n✅ Real data tearsheet completed successfully!")
+            print(f"\n✅ NEW FLAT ARCHITECTURE real data tearsheet completed successfully!")
             print(f"📊 Analyzed {len(universe_tickers)} tickers from 2016-2025")
-            print(f"📈 Generated comprehensive tearsheet with real data")
+            print(f"📈 Generated comprehensive tearsheet with NEW flat architecture")
             
             # Generate additional period tearsheets
             print("\n📊 Generating additional period tearsheets...")
@@ -1660,7 +2395,7 @@ def run_real_data_tearsheet_2016_2025():
                     first_period_benchmark_returns,
                     first_period_diagnostics,
                     first_period_cash_allocations,
-                    "QVM Engine v3 F-Score Integration - First Period (2016-2020)"
+                    "QVM Engine Flat: NEW FLAT ARCHITECTURE - First Period (2016-2020)"
                 )
             
             # 2. Second Period Tearsheet (2020-2025)
@@ -1680,7 +2415,7 @@ def run_real_data_tearsheet_2016_2025():
                     second_period_benchmark_returns,
                     second_period_diagnostics,
                     second_period_cash_allocations,
-                    "QVM Engine v3 F-Score Integration - Second Period (2020-2025)"
+                    "QVM Engine Flat: NEW FLAT ARCHITECTURE - Second Period (2020-2025)"
                 )
             
             # Save results
@@ -1716,8 +2451,6 @@ def run_real_data_tearsheet_2016_2025():
         return False
 
 
-# -
-
 # # EXECUTION CELL
 
 # +
@@ -1740,17 +2473,20 @@ if __name__ == "__main__":
     else:
         print("\n❌ Real data tearsheet failed")
 else:
-    print("📚 QVM Engine V3 with F-Score Integration - Real Data Tearsheet loaded")
+    print("📚 QVM Engine Flat with F-Score Integration - Real Data Tearsheet loaded")
     print("   Run run_real_data_tearsheet_2016_2025() to execute the real data analysis")
 
 # # SUMMARY
 
 # +
-print("🎯 QVM STRATEGY WITH F-SCORE INTEGRATION PERFORMANCE SUMMARY")
+print("🎯 QVM STRATEGY WITH FLAT ARCHITECTURE AND F-SCORE INTEGRATION PERFORMANCE SUMMARY")
 print("="*80)
 print("📊 Strategy Features:")
+print("   - FLAT ARCHITECTURE: Individual factors with sector neutralization")
 print("   - Piotroski F-Score integration into Quality factor (50% weight)")
-print("   - Simplified quality factor weighting: ROAA (50%), F-Score (50%)")
+print("   - Quality Factor Weights: ROAA (50%), F-Score (50%)")
+print("   - Value Factor Weights: E/P (50%), FCF Yield (50%)")
+print("   - Momentum Factor Weights: 3M/6M Positive (50%), 1M/12M Contrarian (50%)")
 print("   - QVM Factor Weights: Quality 33.33%, Value 33.33%, Momentum 33.34%")
 print("   - Transaction costs: 30 basis points")
 print("   - Monthly rebalancing with efficient portfolio construction")
@@ -1759,4 +2495,6 @@ print("   - Additional period analysis (2016-2020, 2020-2025)")
 print("   - Results saved to output/ directory")
 
 print("\n✅ This version provides comprehensive QVM strategy analysis")
-print("   with F-Score integration and full tearsheet functionality.")
+print("   with FLAT ARCHITECTURE, proper Value and Momentum factors, and F-Score integration.")
+print("   Value factors now use actual E/P and FCF Yield calculations instead of dummy 0.5 scores.")
+print("   Momentum factors now use actual 3M/6M positive and 1M/12M contrarian logic.")

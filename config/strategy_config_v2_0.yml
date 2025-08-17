@@ -1,0 +1,325 @@
+# QVM Engine v2.1.1 Flat - Production Configuration
+# ================================================
+# Author: Duc Nguyen <duc@ascap.vn>
+# Organization: Aureus Sigma Capital Management
+# Created: July 16, 2025
+# Last Updated: August 3, 2025
+# Version: 2.1.1 (Flat Methodology with Enhanced Factors)
+# Purpose: Institutional-grade configuration for Vietnam factor investing platform
+#
+# CRITICAL ARCHITECTURE NOTES:
+# - All weight dictionaries MUST sum to 1.0 (validated by CI tests)
+# - Sector-specific quality weights ensure mathematical soundness
+# - Flat methodology requires single-step weighted combination
+# - Enhanced factors: F-Score, FCF Yield, Low-Volatility defensive overlay
+
+# Quality Factor Configuration
+quality:
+  # Three-tier weighting (FIXED: Level signal should dominate)
+  tier_weights:
+    level: 0.50      # Current profitability (increased from 0.30)
+    change: 0.30     # YoY improvement (decreased from 0.50)
+    acceleration: 0.20 # QoQ acceleration (unchanged)
+  
+  # Profitability metrics by sector
+  metrics:
+    banking: 
+      - ROAE
+      - ROAA
+      - NIM
+      - Cost_Income_Ratio
+    securities:
+      - ROAE
+      - BrokerageRatio
+      - NetProfitMargin
+    non_financial:
+      - ROAE
+      - NetProfitMargin
+      - GrossMargin
+      - OperatingMargin
+  
+  # Normalization parameters
+  normalization:
+    method: "sector_neutral"  # or "cross_sectional"
+    winsorize_limits: [0.01, 0.99]
+    z_score_cap: 3.0
+
+# Value Factor Configuration
+value:
+  # Value metric weights
+  metric_weights:
+    earnings_yield: 0.40  # P/E inverse
+    book_to_price: 0.30   # P/B inverse
+    sales_to_price: 0.20  # P/S inverse
+    ev_ebitda: 0.10      # EV/EBITDA inverse
+  
+  # Sector-specific revenue metrics
+  revenue_metrics:
+    banking: "TotalOperatingIncome_TTM"
+    securities: "TotalOperatingRevenue_TTM"
+    non_financial: "Revenue_TTM"
+  
+  # Handling of negative values
+  negative_handling:
+    earnings: "exclude"  # Exclude negative earnings from P/E
+    book_value: "exclude"  # Exclude negative book value from P/B
+    ebitda: "exclude"     # Exclude negative EBITDA from EV/EBITDA
+
+# Momentum Factor Configuration
+momentum:
+  # Timeframe weights
+  timeframe_weights:
+    "1M": 0.15
+    "3M": 0.25
+    "6M": 0.30
+    "12M": 0.30
+  
+  # Lookback periods (months)
+  lookback_periods:
+    "1M": 1
+    "3M": 3
+    "6M": 6
+    "12M": 12
+  
+  # Skip months to avoid microstructure noise
+  skip_months: 1
+  
+  # Volatility scaling
+  volatility_scaling:
+    enabled: true
+    lookback_days: 30
+  
+  # Vietnam-specific adjustments
+  vietnam_adjustments:
+    retail_turnover_penalty: 0.7
+    stop_loss_threshold: -0.15
+
+# QVM Composite Configuration
+qvm_composite:
+  # Factor weights (institutional standard)
+  weights:
+    quality: 0.40
+    value: 0.30
+    momentum: 0.30
+  
+  # Enhanced 4-pillar weights for v2.1.1_flat
+  enhanced_weights:
+    quality: 0.35
+    value: 0.30
+    momentum: 0.20
+    defensive: 0.15
+  
+  # Dynamic rebalancing (future enhancement)
+  dynamic_weighting:
+    enabled: false
+    correlation_threshold: 0.7
+    regime_detection: false
+
+# Flat Methodology Individual Factor Weights (v2.0.1+ engines)
+# SECTOR-SPECIFIC STRUCTURE: Each weight dictionary MUST sum to 1.0
+flat_composite_weights:
+  # For v2.0.1_flat engine - Quality factors by sector
+  quality_non_financial:
+    roae_z: 0.35
+    net_profit_margin_z: 0.25
+    gross_margin_z: 0.20
+    operating_margin_z: 0.15
+    ebitda_margin_z: 0.05
+  quality_banking:
+    roae_z: 0.40
+    roaa_z: 0.25
+    nim_z: 0.20
+    cost_income_z: 0.15
+  quality_securities:
+    roae_z: 0.50
+    net_profit_margin_z: 0.50
+
+  # For v2.1.1_flat engine (enhanced with new factors) - Quality factors by sector
+  quality_enhanced_non_financial:
+    roae_z: 0.30
+    net_profit_margin_z: 0.20
+    gross_margin_z: 0.15
+    operating_margin_z: 0.10
+    ebitda_margin_z: 0.05
+    f_score_z: 0.20
+  quality_enhanced_banking:
+    roae_z: 0.35
+    roaa_z: 0.20
+    nim_z: 0.15
+    cost_income_z: 0.10
+    f_score_z: 0.20
+  quality_enhanced_securities:
+    roae_z: 0.40
+    net_profit_margin_z: 0.30
+    f_score_z: 0.30
+  
+  # Value factor individual weights
+  value:
+    earnings_yield_z: 0.40
+    book_to_price_z: 0.30
+    sales_to_price_z: 0.20
+    ebitda_to_ev_z: 0.10
+  
+  # Enhanced value factors (for v2.1.1_flat with FCF Yield)
+  value_enhanced:
+    earnings_yield_z: 0.35    # Reduced to accommodate FCF Yield
+    book_to_price_z: 0.25     # Reduced
+    sales_to_price_z: 0.20    # Unchanged
+    ebitda_to_ev_z: 0.05      # Reduced
+    fcf_yield_z: 0.15         # New: FCF Yield contribution
+  
+  # Momentum factor individual weights
+  momentum:
+    momentum_1m_z: 0.10
+    momentum_3m_z: 0.20
+    momentum_6m_z: 0.30
+    momentum_12m_z: 0.40
+  
+  # Defensive factor individual weights (v2.1.1_flat only)
+  defensive:
+    low_volatility_z: 1.0     # Pure low-vol signal
+
+# Data Quality Configuration
+data_quality:
+  # Reporting lag assumptions
+  reporting_lag:
+    quarterly: 45  # Days after quarter end
+    annual: 90     # Days after year end
+  
+  # Ratio validation ranges
+  ratio_ranges:
+    ROAE: [0.0, 0.5]      # 0-50% is reasonable
+    ROAA: [0.0, 0.1]      # 0-10% is reasonable
+    NIM: [0.0, 0.15]      # 0-15% for banks
+    Cost_Income_Ratio: [0.2, 0.8]  # 20-80% for banks
+    PE: [-100, 100]       # Handle negative earnings
+    PB: [0, 20]           # Book multiples
+    PS: [0, 50]           # Sales multiples
+    EV_EBITDA: [-50, 50]  # Handle negative EBITDA
+  
+  # Missing data handling
+  missing_data:
+    imputation_method: "sector_median"
+    min_coverage: 0.7  # Minimum data coverage required
+    max_staleness_days: 180  # Maximum days for stale data
+
+# Sector Configuration
+sectors:
+  # Sector mapping
+  financial_sectors:
+    - "Banking"
+    - "Securities"  
+    - "Insurance"
+  
+  # Sector-specific adjustments
+  sector_adjustments:
+    banking:
+      use_specialized_metrics: true
+      regulatory_adjustments: true
+    securities:
+      cyclical_adjustments: true
+      market_beta_adjustment: true
+    real_estate:
+      development_cycle_adjustment: true
+      asset_revaluation_treatment: true
+
+# Performance Configuration
+performance:
+  # Batch processing
+  batch_size: 100
+  parallel_processing: true
+  max_workers: 4
+  
+  # Caching
+  cache_enabled: true
+  cache_ttl_hours: 24
+  
+  # Logging
+  log_level: "INFO"
+  detailed_logging: false
+
+# Backtesting Configuration
+backtesting:
+  # Historical calculation parameters
+  start_date: "2018-01-01"
+  end_date: "2025-07-16"
+  rebalancing_frequency: "M"  # 'M' for monthly, 'Q' for quarterly
+  
+  # Transaction costs
+  transaction_cost: 0.002  # 20 bps
+  market_impact: 0.001     # 10 bps
+  
+  # Universe constraints
+  min_market_cap: 1000e9   # 1T VND
+  min_liquidity: 1e9       # 1B VND daily volume
+  max_position_size: 0.05  # 5% per position
+  
+  # Risk management
+  max_sector_weight: 0.4   # 40% per sector
+  max_drawdown_limit: 0.2  # 20% maximum drawdown
+  volatility_target: 0.15  # 15% annualized volatility
+
+# Validation Configuration
+validation:
+  # Test universe
+  test_universe: ["OCB", "NLG", "FPT", "SSI"]
+  
+  # Validation thresholds
+  thresholds:
+    min_ic: 0.05           # Minimum information coefficient
+    min_sharpe: 0.5        # Minimum Sharpe ratio
+    max_turnover: 2.0      # Maximum annual turnover
+  
+  # External validation
+  external_validation:
+    enabled: true
+    benchmark_sources: ["brokerage_data", "bloomberg"]
+    tolerance: 0.05        # 5% tolerance for external validation
+
+# Production Configuration
+production:
+  # Update schedule
+  daily_update_time: "18:30"  # Vietnam time
+  
+  # Monitoring
+  monitoring:
+    enabled: true
+    alert_thresholds:
+      data_quality_score: 0.8
+      factor_correlation: 0.9
+      performance_degradation: 0.1
+  
+  # Fail-safe mechanisms
+  fail_safe:
+    max_consecutive_failures: 3
+    fallback_to_previous: true
+    emergency_contacts: ["duc@ascap.vn"]
+
+# Metadata & Version Control
+# ==========================
+metadata:
+  version: "2.1.1"
+  engine_versions:
+    - "qvm_v2.0.1_flat"    # Base flat methodology
+    - "qvm_v2.1.1_flat"    # Enhanced with defensive factors
+  configuration_status: "production_ready"
+  last_validated: "2025-08-03"
+  validation_method: "glass_box_mathematical_proof"
+  created_by: "Duc Nguyen <duc@ascap.vn>"
+  organization: "Aureus Sigma Capital Management"
+  review_schedule: "quarterly"
+  
+# Compliance & Governance
+compliance:
+  weight_validation: "automated_ci_testing"
+  precision_requirement: "1e-6_institutional_standard"
+  sector_neutralization: "mandatory_all_factors"
+  flat_methodology: "single_step_weighted_combination"
+  
+# Performance Targets (v2.1.1 Enhanced)
+performance_targets:
+  sharpe_ratio: ">1.0"
+  max_drawdown: "<35%"
+  information_ratio: ">0.8"
+  monthly_hit_rate: ">55%"
+  factor_diversification: "correlation_matrix_monitoring"

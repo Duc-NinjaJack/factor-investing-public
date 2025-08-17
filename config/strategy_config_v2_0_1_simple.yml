@@ -1,0 +1,158 @@
+# QVM Strategy Configuration v2.0.1
+# ===================================
+# Simplified configuration for current QVM strategy with basic factors
+# Author: Raymond
+# Created: August 16, 2025
+# Updated: August 17, 2025
+# Version: 2.0.1
+# Purpose: Simple factor investing strategy configuration
+# Location: config/strategy_config_v2_0_1_simple.yml
+
+# Strategy Configuration
+strategy:
+  name: "QVM Simple Factors"
+  version: "2.0.1"
+  description: "Quality, Value, Momentum strategy with simple factor definitions"
+  
+  # Portfolio settings
+  portfolio:
+    universe_size: 728
+    portfolio_size: 20
+    starting_capital: 1000000  # 1M VND
+    
+  # Date range
+  date_range:
+    start: "2016-01-01"
+    end: "2025-12-31"
+
+# Factor Weights
+factor_weights:
+  quality: 0.333
+  value: 0.333
+  momentum: 0.334
+
+# Quality Factor Configuration
+quality:
+  # Simple quality metrics
+  metrics:
+    non_financial:
+      - "ROAE"
+      - "NetProfitMargin"
+      - "GrossMargin"
+    banking:
+      - "ROAE"
+      - "ROAA"
+      - "NIM"
+    securities:
+      - "ROAE"
+      - "NetProfitMargin"
+  
+  # F-Score integration
+  fscore:
+    enabled: true
+    weight: 0.5  # 50% of quality score
+    traditional_weight: 0.5  # 50% of quality score (ROAA for non-F-Score)
+
+# Value Factor Configuration
+value:
+  # Simple value metrics
+  metrics:
+    earnings_yield:
+      enabled: true
+      weight: 0.5  # 50% of value score
+      calculation: "NetProfit_TTM / Market_Cap"
+    fcf_yield:
+      enabled: true
+      weight: 0.5  # 50% of value score
+      calculation: "FCF / Market_Cap"  # Simplified to Market Cap
+
+# Momentum Factor Configuration
+momentum:
+  # Simple momentum metrics
+  metrics:
+    positive_momentum:
+      enabled: true
+      weight: 0.6  # 60% of momentum score
+      periods: [3, 6]  # 3M and 6M
+    contrarian_momentum:
+      enabled: true
+      weight: 0.4  # 40% of momentum score
+      periods: [1, 12]  # 1M and 12M
+
+# Risk Management Configuration
+risk_management:
+  enabled: true
+  
+  # Cash allocation rules based on market drawdown
+  cash_allocation:
+    drawdown_5: 0.05    # 5% cash for <5% drawdown
+    drawdown_10: 0.20   # 20% cash for 5-10% drawdown
+    drawdown_15: 0.40   # 40% cash for 10-15% drawdown
+    drawdown_20: 0.60   # 60% cash for 15-20% drawdown
+    drawdown_25: 0.80   # 80% cash for >20% drawdown
+  
+  # Default cash allocation
+  default_cash: 0.05  # 5% minimum cash
+
+# Data Configuration
+data:
+  # Database tables
+  tables:
+    daily_data: "vcsc_daily_data_complete"
+    fundamental_data: "vcsc_fundamental_data"
+    benchmark: "vnindex_daily"
+  
+  # Price data
+  price_data:
+    forward_fill: true
+    min_price: 1000  # Minimum price in VND
+    
+  # Fundamental data
+  fundamental_data:
+    min_coverage: 0.7  # Minimum data coverage required
+    max_staleness_days: 180  # Maximum days for stale data
+
+# Performance Configuration
+performance:
+  # Rebalancing
+  rebalancing_frequency: "M"  # Monthly rebalancing
+  
+  # Transaction costs (simplified)
+  transaction_costs:
+    enabled: false  # No transaction costs for simplicity
+    
+  # Performance metrics
+  metrics:
+    - "annualized_return"
+    - "volatility"
+    - "sharpe_ratio"
+    - "max_drawdown"
+    - "calmar_ratio"
+    - "information_ratio"
+    - "beta"
+
+# Output Configuration
+output:
+  # Logging
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Plots
+  plots:
+    enabled: true
+    style: "seaborn-v0_8"
+    figure_size: [16, 12]
+    
+  # Tearsheet
+  tearsheet:
+    enabled: true
+    include_cash_allocation: true
+    include_comparison_plots: true
+
+# File Information
+file_info:
+  location: "config/strategy_config_v2_0_1_simple.yml"
+  last_updated: "2025-08-17"
+  usage: "Used by 06_QVM_risk_comparison.py for risk management comparison"
+  dependencies: "Requires PyYAML for loading"

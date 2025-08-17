@@ -1,7 +1,7 @@
-Annualized Return (%): 9.363617548618164
-Annualized Volatility (%): 8.418642242585083
-Sharpe Ratio: 1.1122479467357567
-Max Drawdown (%): -17.013549602627876
-Calmar Ratio: 0.5503623739499887
-Information Ratio: -0.14624183092004286
-Beta: 0.1973696148352539
+Annualized Return (%): 9.879899347009523
+Annualized Volatility (%): 9.058002945986798
+Sharpe Ratio: 1.0907370428033336
+Max Drawdown (%): -26.11633789671992
+Calmar Ratio: 0.3783033971332707
+Information Ratio: -0.11494098338795172
+Beta: 0.2184742386263475
