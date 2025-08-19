@@ -12,13 +12,13 @@
 strategy:
   name: "QVM Simple Factors"
   version: "2.0.1"
-  description: "Quality, Value, Momentum strategy with simple factor definitions"
+  description: "Quality, Value, Momentum and Defensive strategy with simple factor definitions"
   
   # Portfolio settings
   portfolio:
     universe_size: 728
     portfolio_size: 20
-    starting_capital: 1000000  # 1M VND
+    starting_capital: 10_000_000_000  # 10B VND
     
   # Date range
   date_range:
@@ -27,34 +27,118 @@ strategy:
 
 # Factor Weights
 factor_weights:
-  quality: 0.333
-  value: 0.333
-  momentum: 0.334
+  quality: 0.25
+  value: 0.25
+  momentum: 0.25
+  defensive: 0.25
+
+# QVM Composite Configuration (Required by parent class)
+qvm_composite:
+  weights:
+    quality: 0.25
+    value: 0.25
+    momentum: 0.25
+    defensive: 0.25
+  enhanced_weights:
+    quality: 0.25
+    value: 0.25
+    momentum: 0.25
+    defensive: 0.25
+
+# Weights Configuration (Required by parent class)
+weights:
+  quality: 0.25
+  value: 0.25
+  momentum: 0.25
+  defensive: 0.25
+
+# Flat Composite Weights (Required by parent class)
+flat_composite_weights:
+  # Quality weights for different sectors (parent class expects these names)
+  quality_non_financial:
+    roaa: 0.5
+    f_score: 0.5
+  
+  quality_banking:
+    roaa: 0.5
+    f_score: 0.5
+  
+  quality_securities:
+    roaa: 0.5
+    f_score: 0.5
+  
+  # Enhanced quality weights for different sectors (v2.1.1 uses these)
+  quality_enhanced_non_financial:
+    roaa: 0.5
+    f_score: 0.5
+  
+  quality_enhanced_banking:
+    roaa: 0.5
+    f_score: 0.5
+  
+  quality_enhanced_securities:
+    roaa: 0.5
+    f_score: 0.5
+  
+  # Value weights (parent class expects these)
+  value:
+    earnings_yield: 0.5
+    fcf_yield: 0.5
+  
+  # Momentum weights (parent class expects these)
+  momentum:
+    positive_momentum: 0.6
+    contrarian_momentum: 0.4
+  
+  # Value enhanced weights
+  value_enhanced:
+    earnings_yield: 0.5
+    fcf_yield: 0.5
+  
+  # Momentum weights
+  momentum:
+    positive_momentum: 0.6
+    contrarian_momentum: 0.4
+  
+  # Defensive weights
+  defensive:
+    low_volatility: 1.0
 
 # Quality Factor Configuration
 quality:
-  # Simple quality metrics
-  metrics:
-    non_financial:
-      - "ROAE"
-      - "NetProfitMargin"
-      - "GrossMargin"
-    banking:
-      - "ROAE"
-      - "ROAA"
-      - "NIM"
-    securities:
-      - "ROAE"
-      - "NetProfitMargin"
+  # Tier weights for quality factors
+  tier_weights:
+    roaa: 0.5
+    fscore: 0.5
   
-  # F-Score integration
-  fscore:
-    enabled: true
-    weight: 0.5  # 50% of quality score
-    traditional_weight: 0.5  # 50% of quality score (ROAA for non-F-Score)
+  # Simple quality metrics: 50% ROAA + 50% F-Score weighting
+  metrics:
+    roaa:
+      enabled: true
+      weight: 0.5  # 50% of quality score
+      calculation: "NetProfit_TTM / AvgTotalAssets"
+      normalization: "0-15% range normalized to 0-1"
+    fscore:
+      enabled: true
+      weight: 0.5  # 50% of quality score
+      calculation: "Piotroski F-Score (sector-specific)"
+      variants:
+        non_financial: 9  # 9 tests for non-financial sectors
+        banking: 6         # 6 tests for banking sector
+        securities: 5      # 5 tests for securities sector
+      normalization: "Raw score / max_score for sector"
 
 # Value Factor Configuration
 value:
+  # Metric weights for value factors
+  metric_weights:
+    earnings_yield: 0.5
+    fcf_yield: 0.5
+  
+  # Revenue metrics
+  revenue_metrics:
+    enabled: false
+  
   # Simple value metrics
   metrics:
     earnings_yield:
@@ -68,6 +152,19 @@ value:
 
 # Momentum Factor Configuration
 momentum:
+  # Timeframe weights for momentum factors
+  timeframe_weights:
+    positive_momentum: 0.6
+    contrarian_momentum: 0.4
+  
+  # Lookback periods
+  lookback_periods:
+    positive_momentum: [3, 6]  # 3M and 6M
+    contrarian_momentum: [1, 12]  # 1M and 12M
+  
+  # Skip months for momentum calculation
+  skip_months: 1
+  
   # Simple momentum metrics
   metrics:
     positive_momentum:
@@ -85,7 +182,7 @@ risk_management:
   
   # Cash allocation rules based on market drawdown
   cash_allocation:
-    drawdown_5: 0.05    # 5% cash for <5% drawdown
+    drawdown_5: 0.0    # 0% cash for <5% drawdown
     drawdown_10: 0.20   # 20% cash for 5-10% drawdown
     drawdown_15: 0.40   # 40% cash for 10-15% drawdown
     drawdown_20: 0.60   # 60% cash for 15-20% drawdown
