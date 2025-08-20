@@ -83,7 +83,7 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
         })
         
         # New factor parameters
-        self.low_vol_lookback = 63  # 63-day rolling volatility
+        self.low_vol_lookback = 63  # 63 trading days (institutional standard)
         
         # Override flat weights to use enhanced versions for v2.1.1
         self._load_enhanced_flat_weights()
@@ -347,7 +347,9 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
         try:
             self.logger.info(f"Calculating Low-Volatility factor for {len(universe)} tickers")
             
-            start_date = analysis_date - pd.DateOffset(days=100)
+            # Need 63 trading days + buffer for Vietnam market (~22 trading days/month)
+            # 63 trading days = ~3 months = ~90 calendar days + holidays/weekends = 120 days safe buffer
+            start_date = analysis_date - pd.DateOffset(days=120)
             query = text("""
                 SELECT date, ticker, close FROM equity_history
                 WHERE ticker IN :tickers AND date BETWEEN :start_date AND :analysis_date
@@ -364,15 +366,27 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
                 self.logger.warning("No price data for volatility calculation.")
                 return {}
 
-            # Calculate 63-day rolling volatility (inverted for low-vol signal)
+            # Calculate 63-day rolling volatility (institutional standard)
             low_vol_raw = {}
+            calculated_count = 0
+            skipped_count = 0
+            
             for ticker in universe:
                 ticker_prices = price_data[price_data['ticker'] == ticker]['close']
-                if len(ticker_prices) >= 64:
+                if len(ticker_prices) >= 64:  # Need 64 prices for 63 returns
                     returns = ticker_prices.pct_change().dropna()
-                    if len(returns) >= 63:
+                    if len(returns) >= 63:  # Need exactly 63 trading days
                         volatility_63d = returns.tail(63).std()
                         low_vol_raw[ticker] = -1 * volatility_63d  # Invert: low vol = high score
+                        calculated_count += 1
+                    else:
+                        skipped_count += 1
+                        self.logger.debug(f"Ticker {ticker}: only {len(returns)} returns, need 63")
+                else:
+                    skipped_count += 1
+                    self.logger.debug(f"Ticker {ticker}: only {len(ticker_prices)} prices, need 64")
+            
+            self.logger.info(f"Low-vol calculation: {calculated_count} calculated, {skipped_count} skipped")
 
             # TIER 1 REFINEMENT #4: Use cached sector mapping for performance  
             if sector_map is None:
@@ -436,26 +450,36 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
             # Calculate sector-specific F-Scores
             raw_scores = {}
             
-            # Non-Financial (9-point)
-            non_fin_tickers = [t for t in universe_tickers if sector_map.loc[t, 'sector'] not in ['Banking', 'Securities']]
+            # Non-Financial (9-point) - Process in batches to avoid SQL query timeout
+            non_fin_tickers = [t for t in universe_tickers if t in sector_map.index and sector_map.loc[t, 'sector'] not in ['Banking', 'Securities']]
             if non_fin_tickers:
-                scores = self._get_raw_f_score_non_financial(non_fin_tickers, current_year, current_quarter, analysis_date)
-                for t, s in scores.items(): 
-                    raw_scores[t] = {'raw': s, 'max': 9}
+                # Process in batches of 10 tickers to avoid SQL query hanging
+                batch_size = 10
+                for i in range(0, len(non_fin_tickers), batch_size):
+                    batch = non_fin_tickers[i:i + batch_size]
+                    scores = self._get_raw_f_score_non_financial(batch, current_year, current_quarter, analysis_date)
+                    for t, s in scores.items(): 
+                        raw_scores[t] = {'raw': s, 'max': 9}
             
-            # Banking (6-point)
-            bank_tickers = [t for t in universe_tickers if sector_map.loc[t, 'sector'] == 'Banking']
+            # Banking (6-point) - Process in batches
+            bank_tickers = [t for t in universe_tickers if t in sector_map.index and sector_map.loc[t, 'sector'] == 'Banking']
             if bank_tickers:
-                scores = self._get_raw_f_score_banking(bank_tickers, current_year, current_quarter)
-                for t, s in scores.items(): 
-                    raw_scores[t] = {'raw': s, 'max': 6}
+                batch_size = 10
+                for i in range(0, len(bank_tickers), batch_size):
+                    batch = bank_tickers[i:i + batch_size]
+                    scores = self._get_raw_f_score_banking(batch, current_year, current_quarter)
+                    for t, s in scores.items(): 
+                        raw_scores[t] = {'raw': s, 'max': 6}
             
-            # Securities (5-point)
-            sec_tickers = [t for t in universe_tickers if sector_map.loc[t, 'sector'] == 'Securities']
+            # Securities (5-point) - Process in batches
+            sec_tickers = [t for t in universe_tickers if t in sector_map.index and sector_map.loc[t, 'sector'] == 'Securities']
             if sec_tickers:
-                scores = self._get_raw_f_score_securities(sec_tickers, current_year, current_quarter)
-                for t, s in scores.items(): 
-                    raw_scores[t] = {'raw': s, 'max': 5}
+                batch_size = 10
+                for i in range(0, len(sec_tickers), batch_size):
+                    batch = sec_tickers[i:i + batch_size]
+                    scores = self._get_raw_f_score_securities(batch, current_year, current_quarter)
+                    for t, s in scores.items(): 
+                        raw_scores[t] = {'raw': s, 'max': 5}
 
             # Sector-scaled normalization then sector-neutral z-scoring
             normalized_scores = {
@@ -508,10 +532,10 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
                 if 'ticker' in sector_map.columns:
                     sector_map = sector_map.set_index('ticker')
             
-            # Exclude financial sectors
+            # Exclude financial sectors - add safety check for missing tickers
             eligible_tickers = [
                 t for t in universe_tickers 
-                if sector_map.loc[t, 'sector'] not in ['Banking', 'Securities', 'Insurance']
+                if t in sector_map.index and sector_map.loc[t, 'sector'] not in ['Banking', 'Securities', 'Insurance']
             ]
             
             if not eligible_tickers:
@@ -525,24 +549,38 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
             
             current_year, current_quarter = quarter_info
 
-            # TIER 2 REFINEMENT #1: Get FCF components including actual Capex data
-            fcf_query = text("""
-                SELECT ticker, NetCFO_TTM, NetCFI_TTM, CapEx_TTM, FCF_TTM 
-                FROM intermediary_calculations_enhanced 
-                WHERE year = :y AND quarter = :q AND ticker IN :tickers AND has_full_ttm = 1
-            """)
-            fcf_data = pd.read_sql(fcf_query, self.engine, params={
-                'y': current_year, 'q': current_quarter, 'tickers': tuple(eligible_tickers)
-            })
+            # Process in batches to avoid SQL query timeout
+            batch_size = 100  # Larger batch size for simpler queries
+            fcf_data_list = []
+            market_data_list = []
             
-            # Get market cap data
-            market_query = text("""
-                SELECT ticker, market_cap FROM vcsc_daily_data_complete 
-                WHERE trading_date = :d AND ticker IN :tickers AND market_cap > 0
-            """)
-            market_data = pd.read_sql(market_query, self.engine, params={
-                'd': analysis_date, 'tickers': tuple(eligible_tickers)
-            })
+            for i in range(0, len(eligible_tickers), batch_size):
+                batch = eligible_tickers[i:i + batch_size]
+                
+                # TIER 2 REFINEMENT #1: Get FCF components including actual Capex data
+                fcf_query = text("""
+                    SELECT ticker, NetCFO_TTM, NetCFI_TTM, CapEx_TTM, FCF_TTM 
+                    FROM intermediary_calculations_enhanced 
+                    WHERE year = :y AND quarter = :q AND ticker IN :tickers AND has_full_ttm = 1
+                """)
+                batch_fcf = pd.read_sql(fcf_query, self.engine, params={
+                    'y': current_year, 'q': current_quarter, 'tickers': tuple(batch)
+                })
+                fcf_data_list.append(batch_fcf)
+                
+                # Get market cap data
+                market_query = text("""
+                    SELECT ticker, market_cap FROM vcsc_daily_data_complete 
+                    WHERE trading_date = :d AND ticker IN :tickers AND market_cap > 0
+                """)
+                batch_market = pd.read_sql(market_query, self.engine, params={
+                    'd': analysis_date, 'tickers': tuple(batch)
+                })
+                market_data_list.append(batch_market)
+            
+            # Combine all batches
+            fcf_data = pd.concat(fcf_data_list, ignore_index=True) if fcf_data_list else pd.DataFrame()
+            market_data = pd.concat(market_data_list, ignore_index=True) if market_data_list else pd.DataFrame()
 
             # SMART FCF CALCULATION: Use actual Capex when available, fall back to CFI proxy
             fcf_yields = {}
