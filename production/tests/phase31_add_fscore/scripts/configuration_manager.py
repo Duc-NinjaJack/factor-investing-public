@@ -63,41 +63,67 @@ def validate_version_compatibility(strategy_config: Dict, backtest_config: Dict)
 
 def load_strategy_config(config_path: str = None) -> Dict:
     """Load strategy configuration from YAML file."""
-    # Use single, direct path
-    config_file = "../../config/strategy_config_v2_0_1_simple.yml"
+    # Try multiple possible paths for the strategy config
+    possible_paths = [
+        # From the current test directory
+        "config/strategy_config_v2_0_1_simple.yml",
+        # From the production config directory
+        "production/config/strategy_config_v2_0_1_simple.yml",
+        # From the root config directory
+        "/home/raymond/Documents/Projects/factor-investing-public/config/strategy_config_v2_0_1_simple.yml",
+        # From the production config directory (absolute path)
+        "/home/raymond/Documents/Projects/factor-investing-public/production/config/strategy_config_v2_0_1_simple.yml"
+    ]
     
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as file:
-                config = yaml.safe_load(file)
-            print(f"✅ Strategy configuration loaded from {config_file}")
-            return config
-        except yaml.YAMLError as e:
-            print(f"❌ Error parsing strategy config {config_file}: {e}")
+    for config_file in possible_paths:
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r', encoding='utf-8') as file:
+                    config = yaml.safe_load(file)
+                print(f"✅ Strategy configuration loaded from {config_file}")
+                return config
+            except yaml.YAMLError as e:
+                print(f"❌ Error parsing strategy config {config_file}: {e}")
+                continue
     
-    print("❌ Strategy configuration file not found")
+    print("❌ Strategy configuration file not found in any of the expected locations:")
+    for path in possible_paths:
+        print(f"   - {path}")
     return get_default_strategy_config()
 
 
 def load_backtest_config(config_path: str = None) -> Dict:
     """Load and merge backtest configuration with strategy-compatible settings."""
-    # Use single, direct path
-    config_file = "../../config/backtest_config.yml"
+    # Try multiple possible paths for the backtest config
+    possible_paths = [
+        # From the current test directory
+        "config/backtest_config.yml",
+        # From the production config directory
+        "production/config/backtest_config.yml",
+        # From the root config directory
+        "/home/raymond/Documents/Projects/factor-investing-public/config/backtest_config.yml",
+        # From the production config directory (absolute path)
+        "/home/raymond/Documents/Projects/factor-investing-public/production/config/backtest_config.yml"
+    ]
     
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, 'r', encoding='utf-8') as file:
-                config = yaml.safe_load(file)
-            print(f"✅ Backtest configuration loaded from {config_file}")
-            
-            # Merge with strategy-compatible settings
-            merged_config = merge_backtest_with_strategy_config(config)
-            return merged_config
-            
-        except yaml.YAMLError as e:
-            print(f"❌ Error parsing backtest config {config_file}: {e}")
+    for config_file in possible_paths:
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r', encoding='utf-8') as file:
+                    config = yaml.safe_load(file)
+                print(f"✅ Backtest configuration loaded from {config_file}")
+                
+                # Merge with strategy-compatible settings
+                merged_config = merge_backtest_with_strategy_config(config)
+                return merged_config
+                
+            except yaml.YAMLError as e:
+                print(f"❌ Error parsing backtest config {config_file}: {e}")
+                continue
     
-    print("❌ Backtest configuration file not found")
+    print("❌ Backtest configuration file not found in any of the expected locations:")
+    for path in possible_paths:
+        print(f"   - {path}")
     return get_default_backtest_config()
 
 
@@ -144,36 +170,160 @@ def merge_backtest_with_strategy_config(backtest_config: Dict) -> Dict:
 def get_default_strategy_config() -> Dict:
     """Get default strategy configuration if YAML file is not available."""
     print("❌ No strategy configuration file found")
-    print("   Please create config/strategy_config_v2_0_1_simple.yml")
-    return {}
+    print("   Please create one of the following files:")
+    print("   - config/strategy_config_v2_0_1_simple.yml")
+    print("   - production/config/strategy_config_v2_0_1_simple.yml")
+    print("   - /home/raymond/Documents/Projects/factor-investing-public/config/strategy_config_v2_0_1_simple.yml")
+    
+    # Return a minimal default configuration
+    return {
+        'strategy': {
+            'name': 'QVM 4-Pillar Flat Strategy (Default)',
+            'version': '2.0.1',
+            'portfolio': {
+                'portfolio_size': 20,
+                'universe_size': 100,
+                'starting_capital': 10000000000
+            }
+        },
+        'factor_weights': {
+            'quality': 0.25,
+            'value': 0.25,
+            'momentum': 0.25,
+            'defensive': 0.25
+        },
+        'risk_management': {
+            'enabled': True,
+            'default_cash': 0.05,
+            'cash_allocation': {
+                'drawdown_5': 0.20,
+                'drawdown_10': 0.40,
+                'drawdown_15': 0.60,
+                'drawdown_20': 0.80,
+                'drawdown_25': 0.90
+            }
+        },
+        'output': {
+            'logging': {
+                'level': 'INFO'
+            }
+        }
+    }
 
 
 def get_default_backtest_config() -> Dict:
     """Get default backtest configuration if YAML file is not available."""
     print("❌ No backtest configuration file found")
-    print("   Please create production/config/backtest_config.yml")
-    return {}
+    print("   Please create one of the following files:")
+    print("   - config/backtest_config.yml")
+    print("   - production/config/backtest_config.yml")
+    print("   - /home/raymond/Documents/Projects/factor-investing-public/config/backtest_config.yml")
+    
+    # Return a minimal default configuration
+    return {
+        'active_window': 'FULL_2016_2025',
+        'backtest_windows': {
+            'LIQUID_2018_2025': {
+                'start': '2018-01-01',
+                'end': '2025-12-31',
+                'description': 'Post-IPO spike, includes 2018 market stress'
+            }
+        },
+        'ic_hurdles': {
+            'annual_return_net': 0.15,
+            'annual_volatility': 0.15,
+            'sharpe_ratio_net': 1.0,
+            'max_drawdown': -0.35,
+            'beta_vs_vnindex': 0.75,
+            'information_ratio': 0.8
+        },
+        'universe': {
+            'method': 'liquid_universe',
+            'top_n_stocks': 20,
+            'min_adtv_vnd': 10000000000,
+            'min_adtv_pct_mcap': 0.0004,
+            'sector_concentration_limit': 0.25,
+            'foreign_ownership_buffer': 0.03
+        },
+        'portfolio': {
+            'base_leverage': 1.0,
+            'max_leverage': 1.5,
+            'rebalance_frequency': 'M',
+            'concentration_limit': 0.20
+        },
+        'benchmark': {
+            'primary': 'VN_INDEX',
+            'secondary': 'VNFIN_LEAD'
+        },
+        'output': {
+            'save_factor_weights': True,
+            'save_portfolio_history': True,
+            'save_cost_breakdown': True,
+            'generate_tearsheet': True,
+            'export_metrics_csv': True
+        }
+    }
 
 
 def display_configuration_summary(strategy_config: Dict, backtest_config: Dict) -> None:
     """Display a summary of the loaded configuration."""
-    print(f"\n📋 CONFIGURATION SUMMARY")
-    print("-" * 40)
+    print("\n📋 CONFIGURATION SUMMARY")
+    print("=" * 50)
     
+    # Strategy configuration summary
     if strategy_config:
-        print(f"Strategy: {strategy_config['strategy']['name']} v{strategy_config['strategy']['version']}")
-        print(f"Portfolio Size: {strategy_config['strategy']['portfolio']['portfolio_size']} stocks")
+        strategy_name = strategy_config.get('strategy', {}).get('name', 'Unknown')
+        strategy_version = strategy_config.get('strategy', {}).get('version', 'Unknown')
+        portfolio_size = strategy_config.get('strategy', {}).get('portfolio', {}).get('portfolio_size', 'Unknown')
         
-        # Safely display factor weights
+        print(f"Strategy: {strategy_name} v{strategy_version}")
+        print(f"Portfolio Size: {portfolio_size} stocks")
+        
+        # Factor weights
         factor_weights = strategy_config.get('factor_weights', {})
-        quality_w = factor_weights.get('quality', 0.25)
-        value_w = factor_weights.get('value', 0.25)
-        momentum_w = factor_weights.get('momentum', 0.25)
-        defensive_w = factor_weights.get('defensive', 0.25)
-        print(f"Factor Weights: Q{quality_w:.0%} V{value_w:.0%} M{momentum_w:.0%} D{defensive_w:.0%}")
+        if factor_weights:
+            print("Factor Weights:")
+            for pillar, weight in factor_weights.items():
+                print(f"  {pillar.capitalize()}: {weight:.0%}")
+        
+        # Risk management
+        risk_management = strategy_config.get('risk_management', {})
+        if risk_management.get('enabled', False):
+            print("Risk Management: ✅ Enabled")
+            default_cash = risk_management.get('default_cash', 0)
+            print(f"Default Cash: {default_cash:.0%}")
+        else:
+            print("Risk Management: ❌ Disabled")
+    else:
+        print("Strategy Configuration: ❌ Not loaded")
     
+    # Backtest configuration summary
     if backtest_config:
-        print(f"Backtest Window: {backtest_config['active_window']}")
-        print(f"Risk Management: Drawdown-based cash allocation")
+        active_window = backtest_config.get('active_window', 'Unknown')
+        backtest_windows = backtest_config.get('backtest_windows', {})
+        
+        print(f"\nBacktest Window: {active_window}")
+        if active_window in backtest_windows:
+            window_config = backtest_windows[active_window]
+            start_date = window_config.get('start', 'Unknown')
+            end_date = window_config.get('end', 'Unknown')
+            print(f"Period: {start_date} to {end_date}")
+        
+        # Investment committee hurdles
+        ic_hurdles = backtest_config.get('ic_hurdles', {})
+        if ic_hurdles:
+            print("Investment Committee Hurdles:")
+            for hurdle, value in ic_hurdles.items():
+                if isinstance(value, float):
+                    if 'return' in hurdle or 'ratio' in hurdle:
+                        print(f"  {hurdle}: {value:.1%}")
+                    elif 'volatility' in hurdle or 'drawdown' in hurdle:
+                        print(f"  {hurdle}: {value:.1%}")
+                    else:
+                        print(f"  {hurdle}: {value:.2f}")
+                else:
+                    print(f"  {hurdle}: {value}")
+    else:
+        print("Backtest Configuration: ❌ Not loaded")
     
-    print(f"Risk Management: Drawdown-based cash allocation")
+    print("\n" + "=" * 50)

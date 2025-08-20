@@ -96,7 +96,7 @@ def generate_sample_holdings_data():
     }
     
     test_backtest_config = {
-        'active_window': 'LIQUID_2018_2025',
+        'active_window': 'FULL_2016_2025',
         'backtest_windows': {
             'LIQUID_2018_2025': {
                 'start': '2021-01-01',

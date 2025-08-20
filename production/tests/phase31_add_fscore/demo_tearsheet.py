@@ -39,7 +39,7 @@ def main():
     from datetime import datetime, timedelta
     
     # Create sample holdings data
-    dates = pd.date_range('2022-01-01', '2024-12-31', freq='ME')
+    dates = pd.date_range('2022-01-01', '2024-12-31', freq='M')
     tickers = ['VNM', 'HPG', 'VIC', 'TCB', 'MBB', 'ACV', 'FPT', 'VHM', 'GAS', 'PLX']
     holdings_data = []
     

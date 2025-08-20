@@ -24,7 +24,7 @@ backtest_windows:
     description: "Full period with adaptive liquidity weighting"
 
 # === ACTIVE CONFIGURATION ===
-active_window: "LIQUID_2018_2025"  # Change this to switch test periods
+active_window: "FULL_2016_2025"  # Extended to full historical period including pre-liquidity era
 
 # === INVESTMENT COMMITTEE HURDLES ===
 ic_hurdles:

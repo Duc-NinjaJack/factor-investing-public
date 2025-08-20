@@ -140,7 +140,8 @@ from scripts.visualization_manager import (
 
 # get_default_backtest_config function is now imported from scripts.configuration_manager
 
-print("❌ No backtest configuration file found")
+print("✅ All imports completed successfully")
+print("✅ Ready to load configurations")
 
 
 # %% LOAD CONFIGURATIONS
@@ -315,7 +316,7 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
             self.logger.debug("All 4-pillar factor weights present")
         
         # Extract backtest configuration
-        self.active_window = self.backtest_config.get('active_window', 'LIQUID_2018_2025')
+        self.active_window = self.backtest_config.get('active_window', 'FULL_2016_2025')
         self.backtest_period = self.backtest_config.get('backtest_windows', {}).get(self.active_window, {})
         self.ic_hurdles = self.backtest_config.get('ic_hurdles', {})
         
@@ -353,6 +354,8 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
             return result.iloc[0]['count'] > 0
         except:
             return False
+    
+
 
     # _get_most_recent_available_date function is now imported from scripts.data_manager
 
@@ -377,8 +380,19 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
             self.logger.info("🔧 Generating real holdings using QVM factor calculation engine...")
             
             # Get universe of stocks from database - use realistic end date based on available data
-            start_date = self.backtest_period.get('start', '2018-01-01')
+            start_date = self.backtest_period.get('start', '2016-01-01')
             end_date = self.backtest_period.get('end', '2025-07-25')  # Use actual available data end date
+            
+            # Check database connectivity first
+            try:
+                test_query = "SELECT 1 as test"
+                pd.read_sql(test_query, self.engine)
+                self.logger.info("✅ Database connection successful")
+            except Exception as e:
+                self.logger.error(f"❌ Database connection failed: {e}")
+                self.logger.error("❌ Cannot proceed without database access")
+                self.logger.error("📊 Please ensure database is available and contains required tables")
+                return pd.DataFrame()
             
             # Query for available stocks
             universe_query = f"""
@@ -422,7 +436,7 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
                 self.logger.warning(f"⚠️ Could not get benchmark range: {e}")
             
             # Generate monthly holdings for the entire backtest period
-            dates = pd.date_range(start=start_date, end=end_date, freq='ME')
+            dates = pd.date_range(start=start_date, end=end_date, freq='M')
             
             holdings_data = []
             
@@ -569,7 +583,7 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
                 # Group by month and calculate portfolio returns
                 monthly_holdings['month'] = monthly_holdings['date'].dt.to_period('M')
                 monthly_portfolio_returns = []
-                self.logger.info(f"Processing {len(monthly_holdings["month"].unique())} unique months")
+                self.logger.info(f"Processing {len(monthly_holdings['month'].unique())} unique months")
                 
                 for month in monthly_holdings['month'].unique():
                     month_holdings = monthly_holdings[monthly_holdings['month'] == month]
@@ -1028,7 +1042,7 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
                 self.logger.info("📊 Generating holdings using engine's unified interface...")
                 
                 # Get universe of stocks from database
-                start_date = self.backtest_period.get('start', '2018-01-01')
+                start_date = self.backtest_period.get('start', '2016-01-01')
                 end_date = self.backtest_period.get('end', '2025-12-31')
                 universe_query = f"""
                 SELECT DISTINCT ticker
@@ -1117,54 +1131,11 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
                     
                     if not holdings_data:
                         self.logger.error("❌ No valid holdings data could be generated")
+                        self.logger.error("📊 This may indicate missing factor data or engine calculation failures")
+                        self.logger.error("📊 Please check database connectivity and factor calculation engine")
                         return pd.DataFrame()
                     
                     holdings_df = pd.DataFrame(holdings_data)
-                    
-                    # Generate realistic holdings across the backtest period
-                    if holdings_df['date'].nunique() == 1:
-                        self.logger.info("📅 Generating realistic holdings across backtest period...")
-                        start_date = self.backtest_period.get('start', '2018-01-01')
-                        end_date = self.backtest_period.get('end', '2025-12-31')
-                        sample_dates = pd.date_range(
-                            start=start_date, 
-                            end=end_date, 
-                            freq='M'
-                        )
-                        expanded_holdings = []
-                        
-                        for date in sample_dates:
-                            for _, row in holdings_df.iterrows():
-                                # Use realistic factor scores with small random variation
-                                # No artificial time-based improvements
-                                expanded_holdings.append({
-                                    'ticker': row['ticker'],
-                                    'date': date.date(),
-                                    'Quality_Composite': row['Quality_Composite'],
-                                    'Value_Composite': row['Value_Composite'],
-                                    'Momentum_Composite': row['Momentum_Composite'],
-                                    'Defensive_Composite': row['Defensive_Composite'],
-                                    'QVM_Composite': row['QVM_Composite'],
-                                    'roaa_score': row['roaa_score'],
-                                    'fscore_score': row['fscore_score'],
-                                    'earnings_yield_score': row['earnings_yield_score'],
-                                    'fcf_yield_score': row['fcf_yield_score'],
-                                    'momentum_1m_score': row['momentum_1m_score'],
-                                    'momentum_3m_score': row['momentum_3m_score'],
-                                    'momentum_6m_score': row['momentum_6m_score'],
-                                    'momentum_12m_score': row['momentum_12m_score'],
-                                    'low_volatility_score': row['low_volatility_score'],
-                                    'ROAA_Percentage': row['ROAA_Percentage'],
-                                    'Piotroski_F_Score': row['Piotroski_F_Score'],
-                                    'FCF_Yield': row['FCF_Yield'],
-                                    # Preserve data timing information
-                                    'financial_data_quarter': row['financial_data_quarter'],
-                                    'market_data_quarter': row['market_data_quarter'],
-                                    'data_availability_validated': row['data_availability_validated']
-                                })
-                        
-                        holdings_df = pd.DataFrame(expanded_holdings)
-                        self.logger.info(f"✅ Generated {len(holdings_df)} realistic holdings records across {len(sample_dates)} dates")
                     
                     self.logger.info(f"✅ Generated {len(holdings_df)} holdings records using engine's unified interface")
                     self.logger.info("🔧 NO CODE DUPLICATION: All factor calculations use engine methods")
@@ -1184,7 +1155,12 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
             return pd.DataFrame()
             
         except Exception as e:
-            self.logger.error(f"Failed to generate holdings: {e}")
+            self.logger.error(f"❌ Failed to generate holdings: {e}")
+            self.logger.error("📊 Please check the following:")
+            self.logger.error("   - Database connectivity and credentials")
+            self.logger.error("   - Required tables exist (vcsc_daily_data_complete, etc.)")
+            self.logger.error("   - Factor calculation engine is properly configured")
+            self.logger.error("   - Data availability for the specified date range (2016-2025)")
             return pd.DataFrame()
     
     # load_price_data_efficiently function is now imported from scripts.data_manager
@@ -1902,7 +1878,7 @@ def demonstrate_tearsheet():
     
     # Create engine instance to get required parameters
     engine = QVMFlatConfigEngine(STRATEGY_CONFIG, BACKTEST_CONFIG)
-    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'LIQUID_2018_2025'), {})
+    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'FULL_2016_2025'), {})
     
     benchmark_data = load_benchmark_data(engine.engine, backtest_period, engine.logger)
     if not benchmark_data.empty:
@@ -1995,7 +1971,7 @@ def quick_tearsheet():
     
     # Create engine instance to get required parameters
     engine = QVMFlatConfigEngine(STRATEGY_CONFIG, BACKTEST_CONFIG)
-    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'LIQUID_2018_2025'), {})
+    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'FULL_2016_2025'), {})
     
     benchmark_data = load_benchmark_data(engine.engine, backtest_period, engine.logger)
     if not benchmark_data.empty:
@@ -2052,7 +2028,7 @@ def simple_tearsheet():
     
     # Create engine instance to get required parameters
     engine = QVMFlatConfigEngine(STRATEGY_CONFIG, BACKTEST_CONFIG)
-    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'LIQUID_2018_2025'), {})
+    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'FULL_2016_2025'), {})
     
     benchmark_data = load_benchmark_data(engine.engine, backtest_period, engine.logger)
     if not benchmark_data.empty:
@@ -2101,7 +2077,7 @@ from scripts.data_manager import load_benchmark_data
 try:
     # Create engine instance to get required parameters
     engine = QVMFlatConfigEngine(STRATEGY_CONFIG, BACKTEST_CONFIG)
-    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'LIQUID_2018_2025'), {})
+    backtest_period = BACKTEST_CONFIG.get('backtest_windows', {}).get(BACKTEST_CONFIG.get('active_window', 'FULL_2016_2025'), {})
     
     benchmark_data = load_benchmark_data(engine.engine, backtest_period, engine.logger)
     if not benchmark_data.empty:

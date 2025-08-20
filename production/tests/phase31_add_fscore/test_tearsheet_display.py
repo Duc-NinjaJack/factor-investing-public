@@ -25,7 +25,7 @@ def test_tearsheet_display():
     import pandas as pd
     import numpy as np
     
-    dates = pd.date_range('2022-01-01', '2024-12-31', freq='ME')
+    dates = pd.date_range('2022-01-01', '2024-12-31', freq='M')
     portfolio_returns = pd.Series(np.random.normal(0.001, 0.02, len(dates)), index=dates)
     benchmark_returns = pd.Series(np.random.normal(0.0008, 0.018, len(dates)), index=dates)
     
