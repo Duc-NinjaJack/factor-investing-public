@@ -290,7 +290,7 @@ def load_price_data_efficiently(engine, holdings_df: pd.DataFrame, logger: loggi
             """
             
             price_data = pd.read_sql(price_query, engine)
-            price_data['date'] = pd.to_datetime(price_data['date']).dt.date
+            price_data['date'] = pd.to_datetime(price_data['date'])
             
             if len(price_data) > 100:  # Sufficient real data
                 if logger:
@@ -313,7 +313,7 @@ def load_price_data_efficiently(engine, holdings_df: pd.DataFrame, logger: loggi
                     logger.info("📁 Using pre-calculated price data for speed...")
                 
                 price_df = pd.read_csv(fallback_file)
-                price_df['date'] = pd.to_datetime(price_df['date']).dt.date
+                price_df['date'] = pd.to_datetime(price_df['date'])
                 
                 # Filter to our holdings
                 filtered_price = price_df[price_df['ticker'].isin(holdings_df['ticker'].unique())]
@@ -365,7 +365,7 @@ def load_benchmark_data(engine, backtest_period: Dict, logger: logging.Logger = 
             """
             
             benchmark_data = pd.read_sql(benchmark_query, engine)
-            benchmark_data['date'] = pd.to_datetime(benchmark_data['date']).dt.date
+            benchmark_data['date'] = pd.to_datetime(benchmark_data['date'])
             
             if len(benchmark_data) > 100:  # Sufficient real data
                 if logger:
@@ -413,7 +413,7 @@ def load_benchmark_data(engine, backtest_period: Dict, logger: logging.Logger = 
             """
             
             benchmark_data = pd.read_sql(fallback_query, engine)
-            benchmark_data['date'] = pd.to_datetime(benchmark_data['date']).dt.date
+            benchmark_data['date'] = pd.to_datetime(benchmark_data['date'])
             
             if len(benchmark_data) > 100:  # Sufficient real data
                 if logger:
@@ -455,7 +455,7 @@ def load_benchmark_data(engine, backtest_period: Dict, logger: logging.Logger = 
                     logger.info("📁 Using pre-calculated benchmark data for speed...")
                 
                 benchmark_df = pd.read_csv(fallback_file)
-                benchmark_df['date'] = pd.to_datetime(benchmark_df['date']).dt.date
+                benchmark_df['date'] = pd.to_datetime(benchmark_df['date'])
                 
                 # Filter to our date range
                 start_date = pd.to_datetime(backtest_period['start']).date()

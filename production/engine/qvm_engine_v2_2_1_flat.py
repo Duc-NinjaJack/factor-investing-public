@@ -47,6 +47,7 @@ Dependencies:
 
 import pandas as pd
 import numpy as np
+import logging
 from sqlalchemy import text
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
@@ -78,6 +79,9 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
         
         # Override engine version
         self.engine_version = 'qvm_v2.2.1_flat'
+        
+        # CRITICAL FIX: Override logger name to show correct engine version
+        self.logger = logging.getLogger('QVMEngineV221Flat')
         
         # Load enhanced 4-pillar weights from configuration
         self.enhanced_weights = self.factor_config.get('qvm_composite', {}).get('enhanced_weights', {
@@ -183,10 +187,10 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
 
     def _get_lagged_quarter_info(self, analysis_date: pd.Timestamp) -> Tuple[int, int]:
         """
-        Get most recent available quarter information for financial data.
+        Get quarter information for financial data that was actually available at analysis date.
         
-        LOOK-AHEAD BIAS FIX: Uses the most recent available fundamentals data
-        to ensure we don't try to use data that doesn't exist yet.
+        CRITICAL LOOK-AHEAD BIAS FIX: Uses data that was actually available at analysis date,
+        not the most recent available data. This prevents using future data to analyze past periods.
         
         Args:
             analysis_date: Current analysis date
@@ -195,30 +199,101 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             Tuple of (available_year, available_quarter) for financial data
         """
         try:
-            # Get the most recent available fundamentals data
+            # Calculate the quarter that should be used for this analysis date
+            # Use 1 quarter lag to account for earnings announcement delays
+            year = analysis_date.year
+            month = analysis_date.month
+            
+            # Determine current quarter
+            if month <= 3:
+                current_quarter = 1
+                current_year = year
+            elif month <= 6:
+                current_quarter = 2
+                current_year = year
+            elif month <= 9:
+                current_quarter = 3
+                current_year = year
+            else:
+                current_quarter = 4
+                current_year = year
+            
+            # Use previous quarter for financial data (lagged)
+            if current_quarter == 1:
+                lagged_quarter = 4
+                lagged_year = current_year - 1
+            else:
+                lagged_quarter = current_quarter - 1
+                lagged_year = current_year
+            
+            # Validate that this data was actually available at analysis date
+            # Check if we're within the earnings announcement delay period
+            quarter_end_dates = {
+                1: pd.Timestamp(f"{lagged_year}-03-31"),
+                2: pd.Timestamp(f"{lagged_year}-06-30"),
+                3: pd.Timestamp(f"{lagged_year}-09-30"),
+                4: pd.Timestamp(f"{lagged_year}-12-31")
+            }
+            
+            quarter_end = quarter_end_dates[lagged_quarter]
+            earnings_delay_days = self.data_timing_config['earnings_announcement_delay_days']
+            earliest_available = quarter_end + pd.Timedelta(days=earnings_delay_days)
+            
+            # If analysis date is before data would be available, use previous quarter
+            if analysis_date < earliest_available:
+                if lagged_quarter == 1:
+                    lagged_quarter = 4
+                    lagged_year = lagged_year - 1
+                else:
+                    lagged_quarter = lagged_quarter - 1
+                
+                # Update quarter end for validation
+                quarter_end_dates = {
+                    1: pd.Timestamp(f"{lagged_year}-03-31"),
+                    2: pd.Timestamp(f"{lagged_year}-06-30"),
+                    3: pd.Timestamp(f"{lagged_year}-09-30"),
+                    4: pd.Timestamp(f"{lagged_year}-12-31")
+                }
+                quarter_end = quarter_end_dates[lagged_quarter]
+                earliest_available = quarter_end + pd.Timedelta(days=earnings_delay_days)
+            
+            # Verify data exists in database for this quarter
             query = text("""
-                SELECT year, quarter
+                SELECT COUNT(*) as count
                 FROM intermediary_calculations_enhanced
-                WHERE ticker IN ('AAA', 'AAM', 'ABT', 'ACB', 'ACC')
-                ORDER BY year DESC, quarter DESC
+                WHERE year = :year AND quarter = :quarter
                 LIMIT 1
             """)
             
-            result = pd.read_sql(query, self.engine)
+            result = pd.read_sql(query, self.engine, params={'year': lagged_year, 'quarter': lagged_quarter})
             
-            if not result.empty:
-                available_year = int(result.iloc[0]['year'])
-                available_quarter = int(result.iloc[0]['quarter'])
-                
-                self.logger.info(f"📅 Data timing: Analysis {analysis_date.date()} -> Using available fundamentals {available_year}Q{available_quarter}")
-                return available_year, available_quarter
+            if result.iloc[0]['count'] > 0:
+                self.logger.info(f"📅 Data timing: Analysis {analysis_date.date()} -> Using fundamentals {lagged_year}Q{lagged_quarter} (available from {earliest_available.date()})")
+                return lagged_year, lagged_quarter
             else:
-                self.logger.error("❌ No fundamentals data available in database")
-                return None, None
+                # Fallback to previous quarter if data doesn't exist
+                if lagged_quarter == 1:
+                    lagged_quarter = 4
+                    lagged_year = lagged_year - 1
+                else:
+                    lagged_quarter = lagged_quarter - 1
+                
+                self.logger.warning(f"⚠️ Data not available for {lagged_year}Q{lagged_quarter}, using previous quarter")
+                return lagged_year, lagged_quarter
             
         except Exception as e:
-            self.logger.error(f"Failed to get available quarter info: {e}")
-            return None, None
+            self.logger.error(f"Failed to get lagged quarter info: {e}")
+            # Fallback to simple calculation
+            year = analysis_date.year
+            month = analysis_date.month
+            if month <= 3:
+                return year - 1, 4
+            elif month <= 6:
+                return year, 1
+            elif month <= 9:
+                return year, 2
+            else:
+                return year, 3
 
     def _validate_data_availability(self, ticker: str, analysis_date: pd.Timestamp, 
                                   data_type: str = 'financial') -> bool:

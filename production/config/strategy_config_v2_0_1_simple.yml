@@ -3,6 +3,7 @@ strategy:
   version: "2.0.1"
   portfolio:
     portfolio_size: 20
+    universe_size: 100  # Number of stocks to consider for selection
     starting_capital: 10000000000  # 10 billion VND
 
 factor_weights:

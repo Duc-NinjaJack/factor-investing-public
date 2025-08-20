@@ -405,6 +405,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
             print("   This may indicate calculation errors or extreme market conditions")
         
         # Plot the main equity curves
+        strategy_cumulative.index = pd.to_datetime(strategy_cumulative.index)
         strategy_cumulative.plot(ax=ax1, label='QVM Engine v3 (F-Score)', color='#16A085', lw=2.5)
         benchmark_cumulative.plot(ax=ax1, label='VN-Index (Aligned)', color='#34495E', linestyle='--', lw=2)
         
