@@ -1,0 +1,6 @@
+# Copy to production/config/database.yml and fill in real credentials
+production:
+  host: localhost
+  username: your_username
+  password: your_password
+  schema_name: alphabeta

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
 ================================================================================
-Enhanced QVM Engine v2 - Historical Factor Generation Script
+QVM Engine v2.1.1 Flat - Historical Factor Generation Script
 ================================================================================
 Purpose:
-    Execute historical factor generation using the validated Enhanced QVM Engine v2
-    to restore factor scores for VN-Index benchmarking and backtesting validation.
-    This script orchestrates the generation process with proper error handling,
+    Execute historical factor generation using the QVM Engine v2.1.1 Flat
+    for VN-Index benchmarking and backtesting validation. This script
+    orchestrates the generation process with proper error handling,
     logging, and progress tracking.
 
-Recovery Mission:
-    Restore the 64,051 factor scores lost in the July 21st incident using the
-    Enhanced QVM Engine v2 with all critical fixes validated.
+Engine Architecture:
+    QVM v2.1.1 Flat - 4-pillar architecture with Quality (35%), Value (30%), 
+    Momentum (20%), and Defensive (15%) composites using flat methodology.
 
-Author: Enhanced QVM Engine v2 Recovery Team
-Date: July 24, 2025
-Target Performance: 21-26% annual return, 1.45-1.77 Sharpe ratio
+Author: QVM Engine Team
+Date: August 17, 2025
+Target Performance: >1.0 Sharpe ratio, <35% max drawdown
 """
 
 import pandas as pd
@@ -44,22 +44,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 
-def import_enhanced_engine():
-    """Import the Enhanced QVM Engine v2 from production location."""
+def import_enhanced_engine(strategy_version='qvm_v2.1.1_flat'):
+    """Import the QVM Engine v2.1.1 Flat from production location."""
     try:
         # Add production engine to path
         production_path = Path(__file__).parent.parent
         sys.path.append(str(production_path))
         
-        # Import Enhanced QVM Engine v2
-        from engine.qvm_engine_v2_enhanced import QVMEngineV2Enhanced
+        # Check if hotfix version is requested
+        if 'hotfix' in strategy_version:
+            # Import HOTFIX F-Score engine that bypasses SQL CTE performance issues
+            from engine.qvm_engine_v2_1_1_flat_hotfix import QVMEngineV211Flat
+            logger.info("✅ Successfully imported QVM Engine v2.1.1 Flat HOTFIX (F-Score optimized)")
+        else:
+            # Import standard QVM Engine v2.1.1 Flat
+            from engine.qvm_engine_v2_1_1_flat import QVMEngineV211Flat
+            logger.info("✅ Successfully imported QVM Engine v2.1.1 Flat")
         
-        logger.info("✅ Successfully imported Enhanced QVM Engine v2")
-        return QVMEngineV2Enhanced
+        return QVMEngineV211Flat
         
     except Exception as e:
-        logger.error(f"❌ Failed to import Enhanced QVM Engine v2: {e}")
-        logger.error("Ensure the engine is located at production/engine/qvm_engine_v2_enhanced.py")
+        logger.error(f"❌ Failed to import QVM Engine v2.1.1 Flat: {e}")
+        logger.error("Ensure the engine is located at production/engine/qvm_engine_v2_1_1_flat.py")
         sys.exit(1)
 
 def load_database_config() -> dict:
@@ -218,16 +224,28 @@ def batch_insert_factor_scores(engine, factor_scores: list, strategy_version: st
         return
         
     try:
-        # CRITICAL FIX: Updated query to include all component columns with version-aware insertion
+        # CRITICAL FIX: Updated query to include ALL columns including enhanced factors
         insert_query = text("""
         INSERT INTO factor_scores_qvm (
-            ticker, date, Quality_Composite, Value_Composite, Momentum_Composite, QVM_Composite, 
+            ticker, date, Quality_Composite, Value_Composite, Momentum_Composite, Defensive_Composite, QVM_Composite,
+            Low_Volatility_63D, Piotroski_F_Score, FCF_Yield,
             calculation_timestamp, strategy_version
         ) 
         VALUES (
-            :ticker, :date, :Quality_Composite, :Value_Composite, :Momentum_Composite, :QVM_Composite,
+            :ticker, :date, :Quality_Composite, :Value_Composite, :Momentum_Composite, :Defensive_Composite, :QVM_Composite,
+            :Low_Volatility_63D, :Piotroski_F_Score, :FCF_Yield,
             NOW(), :strategy_version
         )
+        ON DUPLICATE KEY UPDATE
+            Quality_Composite = VALUES(Quality_Composite),
+            Value_Composite = VALUES(Value_Composite),
+            Momentum_Composite = VALUES(Momentum_Composite),
+            Defensive_Composite = VALUES(Defensive_Composite),
+            QVM_Composite = VALUES(QVM_Composite),
+            Low_Volatility_63D = VALUES(Low_Volatility_63D),
+            Piotroski_F_Score = VALUES(Piotroski_F_Score),
+            FCF_Yield = VALUES(FCF_Yield),
+            calculation_timestamp = NOW()
         """)
         
         # CRITICAL FIX: Convert factor_scores format to handle component breakdown with version-aware records
@@ -244,7 +262,12 @@ def batch_insert_factor_scores(engine, factor_scores: list, strategy_version: st
                     'Quality_Composite': round(components.get('Quality_Composite', 0.0), 10),
                     'Value_Composite': round(components.get('Value_Composite', 0.0), 10),
                     'Momentum_Composite': round(components.get('Momentum_Composite', 0.0), 10),
+                    'Defensive_Composite': round(components.get('Defensive_Composite', 0.0), 10),
                     'QVM_Composite': round(components.get('QVM_Composite', 0.0), 10),
+                    # ENHANCED FACTORS: Extract from top-level of record (not components)
+                    'Low_Volatility_63D': round(record.get('Low_Volatility_63D', 0.0), 6),
+                    'Piotroski_F_Score': int(record.get('Piotroski_F_Score', 0)),
+                    'FCF_Yield': round(record.get('FCF_Yield', 0.0), 6),
                     'strategy_version': strategy_version
                 })
             else:
@@ -257,7 +280,12 @@ def batch_insert_factor_scores(engine, factor_scores: list, strategy_version: st
                     'Quality_Composite': round(0.0, 10),
                     'Value_Composite': round(0.0, 10),
                     'Momentum_Composite': round(0.0, 10),
+                    'Defensive_Composite': round(0.0, 10),
                     'QVM_Composite': round(record.get('qvm_score', 0.0), 10),
+                    # ENHANCED FACTORS: Default values for old format
+                    'Low_Volatility_63D': round(0.0, 6),
+                    'Piotroski_F_Score': 0,
+                    'FCF_Yield': round(0.0, 6),
                     'strategy_version': strategy_version
                 })
         
@@ -282,25 +310,73 @@ def run_historical_generation(start_date: str, end_date: str, strategy_version: 
     print(f"📅 Period: {start_date} to {end_date}")
     print(f"🏷️  Version: {strategy_version}")
     print(f"🎯 Mode: {mode.upper()}")
-    print(f"🔧 Engine: Enhanced QVM Engine v2 (with institutional component breakdown)")
+    print(f"🔧 Engine: QVM Engine v2.1.1 Flat (4-pillar with defensive factors)")
     print("=" * 80)
     
-    # Initialize Enhanced QVM Engine v2
-    logger.info("🔧 Initializing Enhanced QVM Engine v2...")
+    # Initialize QVM Engine v2.1.1 Flat
+    logger.info("🔧 Initializing QVM Engine v2.1.1 Flat...")
     
     try:
-        QVMEngineV2Enhanced = import_enhanced_engine()
+        QVMEngineV211Flat = import_enhanced_engine(strategy_version)
         
         # Load config
         config_path = Path(__file__).parent.parent.parent / 'config'
-        engine = QVMEngineV2Enhanced(config_path=str(config_path), log_level='INFO')
+        engine = QVMEngineV211Flat(config_path=str(config_path), log_level='INFO')
         
-        logger.info("✅ Enhanced QVM Engine v2 initialized successfully")
+        logger.info("✅ QVM Engine v2.1.1 Flat initialized successfully")
         logger.info(f"    Database: {engine.db_config['host']}/{engine.db_config['schema_name']}")
         logger.info(f"    Reporting lag: {engine.reporting_lag} days")
         
+        # AGENT MEMO: Feature flag implementation exactly as specified
+        import os, logging, types, concurrent.futures as cf
+        from datetime import datetime
+        log = logging.getLogger(__name__)
+
+        def _wrap_with_timeout(fn, timeout_s, fallback):
+            def wrapped(*args, **kwargs):
+                with cf.ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(fn, *args, **kwargs)
+                    try:
+                        return fut.result(timeout=timeout_s)
+                    except cf.TimeoutError:
+                        log.error("F-Score DB path timed out after %ss; using vectorized fallback.", timeout_s)
+                        return fallback(*args, **kwargs)
+                    except Exception:
+                        log.exception("F-Score DB path error; using vectorized fallback.")
+                        return fallback(*args, **kwargs)
+            return wrapped
+
+        impl = os.getenv("F_SCORE_IMPL", "vectorized").lower()
+        timeout_s = int(os.getenv("F_SCORE_TIMEOUT_S", "30"))
+
+        if impl in ("vectorized","py","python"):
+            from engine.qvm_engine_v2_1_1_flat_fscore_vectorized import install_vectorized_fscore, prime_fscore_cache
+            install_vectorized_fscore(engine)
+            log.info("F-Score implementation: VECTORIZED (default)")
+        elif impl in ("db","sql"):
+            from engine.qvm_engine_v2_1_1_flat_fscore_vectorized import (
+                _compute_nf_vectorized, _compute_bank_vectorized, _compute_sec_vectorized
+            )
+            # Wrap original DB methods with timeout+fallback
+            engine._get_raw_f_score_non_financial = _wrap_with_timeout(
+                engine._get_raw_f_score_non_financial, timeout_s,
+                types.MethodType(lambda self, tickers, y, q, d: _compute_nf_vectorized(self, tickers, y, q, d), engine)
+            )
+            engine._get_raw_f_score_banking = _wrap_with_timeout(
+                engine._get_raw_f_score_banking, timeout_s,
+                types.MethodType(lambda self, tickers, y, q: _compute_bank_vectorized(self, tickers, y, q), engine)
+            )
+            engine._get_raw_f_score_securities = _wrap_with_timeout(
+                engine._get_raw_f_score_securities, timeout_s,
+                types.MethodType(lambda self, tickers, y, q: _compute_sec_vectorized(self, tickers, y, q), engine)
+            )
+            from engine.qvm_engine_v2_1_1_flat_fscore_vectorized import prime_fscore_cache
+            log.info("F-Score implementation: DB with auto-fallback (timeout=%ss)", timeout_s)
+        else:
+            raise SystemExit(f"Unknown F_SCORE_IMPL={impl}")
+        
     except Exception as e:
-        logger.error(f"❌ Failed to initialize Enhanced QVM Engine v2: {e}")
+        logger.error(f"❌ Failed to initialize QVM Engine v2.1.1 Flat: {e}")
         logger.error(traceback.format_exc())
         return False
     
@@ -442,8 +518,8 @@ def main():
     parser = argparse.ArgumentParser(description='Enhanced QVM Engine v2 - Version-Aware Factor Generation')
     
     # VERSION-AWARE FRAMEWORK: Core parameters for multi-version safety
-    parser.add_argument('--version', default='qvm_v2.0_enhanced',
-                       help='Strategy version identifier (default: qvm_v2.0_enhanced)')
+    parser.add_argument('--version', default='qvm_v2.1.1_flat_corrected',
+                       help='Strategy version identifier (default: qvm_v2.1.1_flat_corrected)')
     parser.add_argument('--mode', choices=['incremental', 'refresh'], default='incremental',
                        help='Generation mode: incremental (append missing dates) or refresh (replace existing)')
     

@@ -289,7 +289,8 @@ def show_main_menu():
     print("7.0 - 📚 Factor Generation Guide & Best Practices (CRITICAL)")
     print("7.1 - Generate QVM Factors (Date Range)    │ 7.4 - 📊 Factor Status & Validation")
     print("7.2 - Generate QVM Factors (Single Date)   │ 7.5 - Factor Generation Diagnostics")
-    print("7.3 - Incremental Update (Auto Gap Detect) │")
+    print("7.3 - Incremental Update (Auto Gap Detect) │ 7.7 - 🔬 Analytics Factor Extraction (RAW)")
+    print("                                           │ 7.8 - 📊 Analytics Status & Validation")
     
     print(f"\n{Colors.BOLD}HELP & DOCUMENTATION{Colors.ENDC}")
     print("──────────────────────────────────────────────────────────────────────")
@@ -518,6 +519,44 @@ def handle_factor_generation(choice: str):
         print("  • Cross-validation with alternative methods")
         print("  • Historical consistency checks")
         return False
+
+    elif choice == '7.7':
+        print_header("ANALYTICS FACTOR EXTRACTION (Sidecar: RAW individual factors)", "-")
+        print_info("Wrapper-only capture at sector-neutralization callsite; composites untouched.")
+        print("Options:")
+        print("  a) Daily update (latest composite date, all canonical factors)")
+        print("  b) Incremental from last processed date (auto-continue)")
+        print("  c) Range update (specify dates and optional factor list)")
+        sub = input("Select option (a/b/c): ").strip().lower()
+
+        base_args = [
+            '--version', input("Analytics version [analytics_v1_neo_fixed]: ").strip() or 'analytics_v1_neo_fixed',
+            '--audit-tier', 'tier0', '--write-sidecar', '--resume',
+            '--batch-size', input("Batch size [30]: ").strip() or '30'
+        ]
+
+        if sub == 'a':
+            args = ['--factors', 'all', '--mode', 'daily'] + base_args
+            return run_script('production/scripts/run_factor_analytics_wrapper_neo_fix.py', args)
+        elif sub == 'b':
+            args = ['--factors', 'all', '--mode', 'from-last'] + base_args
+            return run_script('production/scripts/run_factor_analytics_wrapper_neo_fix.py', args)
+        elif sub == 'c':
+            start_date = input("Start date (YYYY-MM-DD): ").strip()
+            end_date = input("End date (YYYY-MM-DD): ").strip()
+            factors_in = input("Factors (comma-separated or 'all') [all]: ").strip()
+            factors_list = ['all'] if factors_in == '' or factors_in.lower() == 'all' else [f.strip() for f in factors_in.split(',') if f.strip()]
+            args = ['--mode', 'range', '--start-date', start_date, '--end-date', end_date, '--factors'] + factors_list + base_args
+            return run_script('production/scripts/run_factor_analytics_wrapper_neo_fix.py', args)
+        else:
+            print_error('Invalid option')
+            return False
+
+    elif choice == '7.8':
+        print_header("ANALYTICS STATUS & VALIDATION", "-")
+        print_info("Sidecar monitoring uses MySQL queries over factor_signals_raw and factor_norm_stats.")
+        print_info("Running quick sidecar status...")
+        return run_script('scripts/monitoring/check_sidecar_status.py')
 
 def handle_backtesting_execution(choice: str):
     """Handle backtesting and portfolio execution"""
