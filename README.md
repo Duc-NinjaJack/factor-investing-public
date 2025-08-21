@@ -9,6 +9,11 @@
 - Vectorized F-Score: 30x performance improvement
 - Analytics sidecar: 18 individual factors captured
 
+### v2.2.1 Addendum
+- Look-ahead bias fixes (lagged quarter fundamentals + current quarter market data)
+- Optional vectorized F-Score 2.2.1 path with banking fallbacks and cache
+- Feature flagged rollout for safe A/B testing
+
 ## Quick Start
 
 ### Installation
@@ -121,6 +126,7 @@ docs/
 - [Quick Start Guide](docs/QuickStart.md) - Installation and setup
 - [Factor Generation](docs/Factor_Generation.md) - Composite scores
 - [Analytics Sidecar](docs/Analytics_Sidecar.md) - Individual factors
+- [Migration Notes: v2.2.1 Vectorized F-Score](docs/Migration_Notes_v2_2_1_Vectorized_FScore.md)
 
 ## Environment Variables
 
@@ -128,6 +134,14 @@ docs/
 # F-Score implementation (optional)
 export F_SCORE_IMPL=vectorized  # Default, 30x faster
 export F_SCORE_TIMEOUT_S=30     # Timeout for DB fallback
+```
+
+### Strategy Config Flag (preferred)
+In your `production/config/strategy_config.yml`, add:
+
+```yaml
+f_score:
+  use_vectorized_fscore_221: true  # default false; enables v2.2.1 vectorized F-Score path
 ```
 
 ## Support

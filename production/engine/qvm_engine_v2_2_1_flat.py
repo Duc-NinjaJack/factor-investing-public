@@ -54,6 +54,14 @@ from datetime import datetime, timedelta
 
 # Import parent engine
 from .qvm_engine_v2_0_1_flat import QVMEngineV201Flat
+from .qvm_engine_v2_2_1_flat_vectorized import (
+    install_vectorized_fscore_221,
+    prime_fscore_cache_221,
+    normalize_sector_labels_221,
+    compute_nf_vectorized_221,
+    compute_bank_vectorized_221,
+    compute_sec_vectorized_221,
+)
 
 
 class QVMEngineV221Flat(QVMEngineV201Flat):
@@ -128,6 +136,21 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                        f"Defensive {self.qvm_weights['defensive']*100:.1f}%")
         self.logger.info(f"BANKING TABLE FIX: Using {self.intermediary_tables['banking']} for banking data")
         self.logger.info("="*60)
+
+        # Feature flag: enable vectorized F-Score path for v2.2.1 (config-only)
+        try:
+            self.use_vectorized_fscore_221 = bool(
+                self.factor_config.get('f_score', {}).get('use_vectorized_fscore_221', False)
+            )
+        except Exception:
+            self.use_vectorized_fscore_221 = False
+
+        if self.use_vectorized_fscore_221:
+            try:
+                install_vectorized_fscore_221(self)
+                self.logger.info("Feature Flag: USE_VECTORIZED_F_SCORE_221=ON — vectorized F-Score installed")
+            except Exception as e:
+                self.logger.warning(f"Failed to install vectorized F-Score methods: {e}")
 
     def _load_enhanced_flat_weights(self):
         """Override parent weights to use enhanced sector-specific versions with new factors."""
@@ -741,8 +764,9 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 self.logger.error(f"   Market data tickers: {market_data['ticker'].tolist()}")
                 return {}
 
-            # TIER 1 REFINEMENT #4: Cache sector mapping for performance
+            # TIER 1 REFINEMENT #4: Cache sector mapping for performance and normalize labels
             sector_map = self.get_sector_mapping().set_index('ticker')
+            sector_map = normalize_sector_labels_221(sector_map.reset_index(), 'sector').set_index('ticker')
 
             # 2. Enhanced Factor Calculation (Traditional + New) with look-ahead bias fixes
             # Traditional factors from parent class (with timing fixes)
@@ -752,6 +776,20 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             
             # AGENT SMITH DEBUG: Log factor counts
             self.logger.info(f"Factor counts: Quality={len(quality_factors)}, Value={len(value_factors)}, Momentum={len(momentum_factors)}")
+
+            # Prime vectorized F-Score cache (≤ 3 queries per sector group per date)
+            if self.use_vectorized_fscore_221:
+                try:
+                    universe_df = sector_map.reset_index()[['ticker','sector']]
+                    prime_fscore_cache_221(self, universe_df, analysis_date, lagged_year, lagged_quarter)
+                    # Log group sizes for observability
+                    sec_map = universe_df.set_index('ticker')['sector'].to_dict()
+                    nf   = [t for t in universe_df['ticker'] if sec_map.get(t) not in ('Banking','Securities','Insurance')]
+                    bank = [t for t in universe_df['ticker'] if sec_map.get(t) == 'Banking']
+                    sec  = [t for t in universe_df['ticker'] if sec_map.get(t) == 'Securities']
+                    self.logger.info("F-Score priming groups: NF=%d, Bank=%d, Sec=%d", len(nf), len(bank), len(sec))
+                except Exception as e:
+                    self.logger.warning(f"F-Score cache priming failed: {e}")
 
             # New v2.2.1 factors (also use cached sector map and timing fixes)
             low_vol_factors = self._get_individual_low_vol_factors_fixed(analysis_date, universe, sector_map)
@@ -763,6 +801,28 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                            f"{len(value_factors)} value, {len(momentum_factors)} momentum, "
                            f"{len(low_vol_factors)} defensive, {len(f_score_factors)} f-score, "
                            f"{len(fcf_yield_factors)} fcf-yield")
+
+            # Observability: factor coverage and NaN rates across series
+            try:
+                def _coverage_summary(group: dict) -> str:
+                    parts = []
+                    for name, ser in group.items():
+                        if isinstance(ser, pd.Series) and len(ser) > 0:
+                            nan_rate = float(ser.isna().mean())
+                            parts.append(f"{name}:{1-nan_rate:.2f}")
+                    return ", ".join(parts[:10])  # limit log length
+
+                self.logger.info(
+                    "Coverage Q=%s | V=%s | M=%s | D=%s | F=%s | FCF=%s",
+                    _coverage_summary(quality_factors),
+                    _coverage_summary(value_factors),
+                    _coverage_summary(momentum_factors),
+                    _coverage_summary(low_vol_factors),
+                    _coverage_summary(f_score_factors),
+                    _coverage_summary(fcf_yield_factors),
+                )
+            except Exception:
+                pass
 
             # 3. Flat Combination with Enhanced Architecture
             all_tickers = set(data['ticker'].unique())
@@ -1357,29 +1417,63 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             if lagged_year is None or lagged_quarter is None:
                 return {}
             
-            # Calculate F-Scores for different sectors
+            # Calculate F-Scores (vectorized path if enabled; safe fallback otherwise)
             f_scores = {}
-            
-            # Get sector-specific tickers
-            non_fin_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] not in ['Banking', 'Securities']]
-            bank_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] == 'Banking']
-            sec_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] == 'Securities']
-            
-            # Calculate F-Scores for each sector using lagged data
-            if non_fin_tickers:
-                non_fin_scores = self._get_raw_f_score_non_financial_fixed(non_fin_tickers, lagged_year, lagged_quarter, analysis_date)
-                for ticker, score in non_fin_scores.items():
-                    f_scores[ticker] = {'raw': score, 'max': 9}
-            
-            if bank_tickers:
-                bank_scores = self._get_raw_f_score_banking_fixed(bank_tickers, lagged_year, lagged_quarter)
-                for ticker, score in bank_scores.items():
-                    f_scores[ticker] = {'raw': score, 'max': 6}
-            
-            if sec_tickers:
-                sec_scores = self._get_raw_f_score_securities_fixed(sec_tickers, lagged_year, lagged_quarter)
-                for ticker, score in sec_scores.items():
-                    f_scores[ticker] = {'raw': score, 'max': 5}
+            try:
+                # Ensure normalized sector labels
+                sec_df = sector_map.reset_index() if 'ticker' not in sector_map.columns else sector_map
+                sec_df = normalize_sector_labels_221(sec_df, 'sector')
+                sec_idx = sec_df.set_index('ticker')
+
+                uniq = list(data['ticker'].unique())
+                non_fin_tickers = [t for t in uniq if sec_idx.loc[t, 'sector'] not in ['Banking', 'Securities', 'Insurance']]
+                bank_tickers = [t for t in uniq if sec_idx.loc[t, 'sector'] == 'Banking']
+                sec_tickers = [t for t in uniq if sec_idx.loc[t, 'sector'] == 'Securities']
+
+                if self.use_vectorized_fscore_221:
+                    if non_fin_tickers:
+                        nf = compute_nf_vectorized_221(self, non_fin_tickers, lagged_year, lagged_quarter, analysis_date)
+                        for t, s in nf.items():
+                            f_scores[t] = {'raw': int(s), 'max': 9}
+                    if bank_tickers:
+                        bs = compute_bank_vectorized_221(self, bank_tickers, lagged_year, lagged_quarter)
+                        for t, s in bs.items():
+                            f_scores[t] = {'raw': int(s), 'max': 6}
+                    if sec_tickers:
+                        ss = compute_sec_vectorized_221(self, sec_tickers, lagged_year, lagged_quarter)
+                        for t, s in ss.items():
+                            f_scores[t] = {'raw': int(s), 'max': 5}
+                else:
+                    if non_fin_tickers:
+                        nf = self._get_raw_f_score_non_financial_fixed(non_fin_tickers, lagged_year, lagged_quarter, analysis_date)
+                        for t, s in nf.items():
+                            f_scores[t] = {'raw': s, 'max': 9}
+                    if bank_tickers:
+                        bs = self._get_raw_f_score_banking_fixed(bank_tickers, lagged_year, lagged_quarter)
+                        for t, s in bs.items():
+                            f_scores[t] = {'raw': s, 'max': 6}
+                    if sec_tickers:
+                        ss = self._get_raw_f_score_securities_fixed(sec_tickers, lagged_year, lagged_quarter)
+                        for t, s in ss.items():
+                            f_scores[t] = {'raw': s, 'max': 5}
+            except Exception as e:
+                self.logger.exception(f"Vectorized F-Score path error, using DB fallback: {e}")
+                f_scores = {}
+                non_fin_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] not in ['Banking', 'Securities']]
+                bank_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] == 'Banking']
+                sec_tickers = [t for t in data['ticker'].unique() if sector_map.loc[t, 'sector'] == 'Securities']
+                if non_fin_tickers:
+                    nf = self._get_raw_f_score_non_financial_fixed(non_fin_tickers, lagged_year, lagged_quarter, analysis_date)
+                    for t, s in nf.items():
+                        f_scores[t] = {'raw': s, 'max': 9}
+                if bank_tickers:
+                    bs = self._get_raw_f_score_banking_fixed(bank_tickers, lagged_year, lagged_quarter)
+                    for t, s in bs.items():
+                        f_scores[t] = {'raw': s, 'max': 6}
+                if sec_tickers:
+                    ss = self._get_raw_f_score_securities_fixed(sec_tickers, lagged_year, lagged_quarter)
+                    for t, s in ss.items():
+                        f_scores[t] = {'raw': s, 'max': 5}
             
             # Normalize F-Scores
             normalized_scores = {

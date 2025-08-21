@@ -104,6 +104,10 @@ flat_composite_weights:
   defensive:
     low_volatility: 1.0
 
+# F-Score configuration
+f_score:
+  use_vectorized_fscore_221: false  # set true to enable v2.2.1 vectorized F-Score path
+
 # Quality Factor Configuration
 quality:
   # Tier weights for quality factors

@@ -49,7 +49,7 @@ sns.set_palette("husl")
 import sys
 sys.path.append('/home/raymond/Documents/Projects/factor-investing-public')
 from production.database.connection import DatabaseManager
-from production.engine.qvm_engine_v3_fscore import QVMEngineV3FScore, PiotroskiFScoreCalculator
+from production.engine.obsolete.qvm_engine_v3_fscore import QVMEngineV3FScore, PiotroskiFScoreCalculator
 from sqlalchemy import text
 from typing import Dict, List, Tuple
 

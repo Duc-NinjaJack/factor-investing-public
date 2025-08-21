@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECATED — superseded by 08_ and v2.2.1 vectorized engine. Not used in pipelines.
 # %% IMPORTS AND CONFIGURATION
 """
 QVM Strategy Flat Configuration with v2.2.1 Flat Engine
@@ -1817,18 +1818,6 @@ class QVMFlatConfigEngine(QVMEngineV221Flat):
     # These methods are now available in the parent QVMEngineV221Flat class with look-ahead bias fixes
     
 
-
-# generate_flat_methodology_tearsheet function is now imported from scripts.tearsheet_generator
-
-# main function is now imported from scripts.main_executor
-
-# display_tearsheet_in_notebook and enhanced_notebook_display functions are now imported from scripts.notebook_display
-
-# generate_visual_tearsheet function is now imported from scripts.tearsheet_generator
-
-# generate_comparison_tearsheet_demo function is now imported from scripts.tearsheet_generator
-
-# demonstrate_tearsheet_generator_usage function is now imported from scripts.tearsheet_generator
 
 # %% MAIN EXECUTION
 if __name__ == "__main__":

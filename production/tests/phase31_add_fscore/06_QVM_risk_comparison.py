@@ -53,7 +53,7 @@ except NameError:
     project_root = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..'))
 sys.path.insert(0, project_root)
 
-from production.engine.qvm_engine_v3_fscore import QVMEngineV3FScore
+from production.engine.obsolete.qvm_engine_v3_fscore import QVMEngineV3FScore
 from sqlalchemy import text
 
 def load_config(config_path: str = None) -> Dict:
