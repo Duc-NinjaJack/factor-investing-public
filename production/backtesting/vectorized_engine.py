@@ -8,8 +8,18 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import logging
+import os
 
 logger = logging.getLogger(__name__)
+
+# Parallel safety: enforce 'spawn' start method early
+try:
+    from production.utils.parallel import ensure_spawn_start_method, disable_db_access_in_children
+    ensure_spawn_start_method(logger)
+    # Set DB disable flag before any potential fan-out usage
+    disable_db_access_in_children()
+except Exception:
+    pass
 
 class VectorizedEngine:
     """
@@ -37,7 +47,14 @@ class VectorizedEngine:
         self.benchmark_returns = benchmark_returns
         self.db_engine = db_engine
         self.results = {}
-        
+        # Echo transaction cost configuration explicitly in logs
+        try:
+            tc_bps = float(self.config.get('transaction_cost_bps', 10))
+            sl_bps = float(self.config.get('slippage_bps', 0))
+            logger.info("Cost model: transaction_cost_bps=%.1f | slippage_bps=%.1f", tc_bps, sl_bps)
+        except Exception:
+            pass
+
     def run_backtest(self, portfolio_constructor) -> Tuple[pd.Series, pd.DataFrame]:
         """
         Run a vectorized backtest using real data and portfolio constructor.
@@ -69,8 +86,23 @@ class VectorizedEngine:
 
         try:
             from production.utils.calendar_service import CalendarService
-            cal = CalendarService.from_price_series(price_index, holdings_index, logger=logger)
             policy = self.config.get('rebalance_anchor_policy', 'nearest:3d')
+            allow_override = bool(self.config.get('allow_nearest_override', False))
+            reporting_lag_days = None
+            try:
+                fundamentals_cfg = self.config.get('fundamentals', {}) or {}
+                if isinstance(fundamentals_cfg.get('reporting_lag_days'), (int, float)):
+                    reporting_lag_days = int(fundamentals_cfg['reporting_lag_days'])
+            except Exception:
+                reporting_lag_days = None
+            cal = CalendarService.from_price_series(
+                price_index,
+                holdings_index,
+                logger=logger,
+                default_policy=policy,
+                allow_nearest_override=allow_override,
+                reporting_lag_days=reporting_lag_days,
+            )
             anchors = []
             for d in target_month_starts:
                 anchor_type, anchor_date, delta = cal.choose_anchor(d, policy)
@@ -80,8 +112,18 @@ class VectorizedEngine:
             rebalance_dates = [pd.to_datetime(a) for a in anchors_df['anchor'].unique()]
             available_dates = set(pd.to_datetime(self.factor_data['date'].unique()))
             rebalance_dates = [d for d in rebalance_dates if d in available_dates]
-            # Persist in results for metadata
+            # Persist in results for metadata and to artifacts for auditability
             self.results['calendar_anchors'] = anchors_df
+            try:
+                from pathlib import Path
+                run_dir = Path(self.config.get('artifacts_dir', 'artifacts')) / 'calendar'
+                run_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    anchors_df.to_parquet(run_dir / 'calendar_anchors.parquet', index=False)
+                except Exception:
+                    anchors_df.to_csv(run_dir / 'calendar_anchors.csv', index=False)
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"CalendarService not available or failed ({e}); falling back to factor-data month ends")
             with warnings.catch_warnings():
@@ -194,6 +236,18 @@ class VectorizedEngine:
             diagnostics_df = pd.DataFrame()
         
         logger.info(f"Backtest completed. Generated {len(returns_series)} return periods")
+        
+        # Emit reproducibility artifact if requested
+        try:
+            emit_artifacts = bool(self.config.get('emit_run_artifact', True))
+            if emit_artifacts:
+                from production.utils.run_artifacts import write_run_artifact
+                seeds = {
+                    'numpy_random_seed': int(self.config.get('numpy_seed', 0)) if 'numpy_seed' in self.config else None,
+                }
+                write_run_artifact(self.config, self.results.get('calendar_anchors'), seeds)
+        except Exception:
+            pass
         
         return returns_series, diagnostics_df
     

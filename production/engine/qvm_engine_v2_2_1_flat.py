@@ -520,6 +520,8 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             fcf_yields = {}
             if not fcf_data.empty and not market_data.empty:
                 combined = pd.merge(fcf_data, market_data, on='ticker', how='inner')
+                if not combined.empty:
+                    combined = combined.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
                 
                 # Track FCF calculation methodology for data quality KPI
                 capex_imputed_count = 0
@@ -789,6 +791,8 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 return {}
                 
             data = pd.merge(fundamentals, market_data, on='ticker', how='inner')
+            if not data.empty and 'ticker' in data.columns:
+                data = data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             if data.empty:
                 self.logger.error("FATAL: No intersection between fundamentals and market data")
                 self.logger.error(f"   Fundamentals tickers: {fundamentals['ticker'].tolist()}")
@@ -1305,6 +1309,8 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             
             # Merge financial and market data
             value_data = pd.merge(financial_data, market_data, on='ticker', how='inner')
+            if not value_data.empty:
+                value_data = value_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             # Calculate value metrics
             value_factors = {}
@@ -1376,6 +1382,7 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             if prices.empty:
                 return {}
             prices['trading_date'] = pd.to_datetime(prices['trading_date'])
+            prices = prices.sort_values(['ticker', 'trading_date'], kind='mergesort').reset_index(drop=True)
 
             momentum_periods = [1, 3, 6, 12]
             momentum_factors: Dict[str, pd.Series] = {}
@@ -1386,14 +1393,14 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 # First price on or after start_date per ticker
                 start_slice = prices[prices['trading_date'] >= start_date]
                 start_first = (
-                    start_slice.sort_values(['ticker', 'trading_date'])
+                    start_slice.sort_values(['ticker', 'trading_date'], kind='mergesort')
                     .groupby('ticker', as_index=False).first()[['ticker', 'close_price']]
                     .rename(columns={'close_price': 'start_price'})
                 )
                 # Last price on or before analysis_date per ticker
                 end_slice = prices[prices['trading_date'] <= analysis_date]
                 end_last = (
-                    end_slice.sort_values(['ticker', 'trading_date'])
+                    end_slice.sort_values(['ticker', 'trading_date'], kind='mergesort')
                     .groupby('ticker', as_index=False).last()[['ticker', 'close_price']]
                     .rename(columns={'close_price': 'end_price'})
                 )
@@ -1453,7 +1460,7 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             })
             if prices.empty:
                 return {}
-            prices = prices.sort_values(['ticker', 'trading_date'])
+            prices = prices.sort_values(['ticker', 'trading_date'], kind='mergesort').reset_index(drop=True)
 
             # Vectorized daily returns per ticker
             prices['ret'] = prices.groupby('ticker')['close_price'].pct_change(fill_method=None)

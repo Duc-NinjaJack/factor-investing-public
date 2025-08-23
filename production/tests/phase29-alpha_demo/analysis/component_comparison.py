@@ -291,7 +291,7 @@ class ComponentComparison:
     
     def _generate_comparison_plots(self):
         """Generate comparison plots."""
-        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12), constrained_layout=True)
         fig.suptitle('QVM Engine v3j - Component Comparison Analysis', fontsize=16, fontweight='bold')
         
         # 1. Cumulative Performance
@@ -354,7 +354,6 @@ class ComponentComparison:
             ax4.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
                     f'{value:.3f}', ha='center', va='bottom')
         
-        plt.tight_layout()
         plt.show()
     
     def save_results(self, output_path: str = "component_comparison_results.csv"):

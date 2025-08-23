@@ -94,6 +94,7 @@ def _construct_liquid_universe_df(
         return pd.DataFrame()
 
     # Step 3: Filter, rank, and finalize the universe DataFrame
+    # Preserve input order from batched queries; avoid re-sorting here
     df = pd.DataFrame(all_results, columns=['ticker', 'trading_days', 'adtv_bn_vnd', 'last_market_cap_bn'])
     min_trading_days = int(config['lookback_days'] * config['min_trading_coverage'])
 
@@ -108,8 +109,8 @@ def _construct_liquid_universe_df(
 
     logger.info(f"{len(filtered_df)} stocks passed filters. Selecting top {config['top_n']} by ADTV.")
 
-    # Sort by ADTV and take top N
-    universe_df = filtered_df.sort_values('adtv_bn_vnd', ascending=False).head(config['top_n'])
+    # Sort by ADTV desc using a stable sort to preserve original order on ties; take top N
+    universe_df = filtered_df.sort_values('adtv_bn_vnd', ascending=False, kind='mergesort').head(config['top_n'])
     return universe_df
 
 
@@ -167,7 +168,7 @@ def get_liquid_universe_dataframe(
         sector_map = pd.read_sql(sector_query, conn, params={'tickers': tuple(tickers)}).set_index('ticker')['sector']
 
     universe_df['sector'] = universe_df['ticker'].map(sector_map)
-    universe_df = universe_df.sort_values('adtv_bn_vnd', ascending=False).reset_index(drop=True)
+    universe_df = universe_df.sort_values('adtv_bn_vnd', ascending=False, kind='mergesort').reset_index(drop=True)
     universe_df['universe_rank'] = universe_df.index + 1
     universe_df['universe_date'] = analysis_date.date()
 

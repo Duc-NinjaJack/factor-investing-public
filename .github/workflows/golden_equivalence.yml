@@ -1,0 +1,53 @@
+name: Golden Window Equivalence (QVM v2.2.1 Flat)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+env:
+  QVM_SEED: "42"
+  MKL_NUM_THREADS: "1"
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+
+jobs:
+  golden-equivalence:
+    name: Gate 0 – portfolio hashes equivalence
+    # Opt-in via repo variable to avoid running without DB credentials
+    if: ${{ vars.ENABLE_DB_TESTS == '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Sequential golden-window baseline
+        run: |
+          python scripts/golden_window_harness.py
+
+      - name: Forced-parallel golden-window run
+        run: |
+          python production/tests/phase31_add_fscore/08_QVM_v221_flat_vectorized_strategy.py \
+            --config config/golden_window.yaml --jobs 4 --force-parallel
+
+      - name: Compare per-date portfolio hashes (Gate 0)
+        run: |
+          diff golden_outputs/golden_window/portfolio_hashes.txt \
+               artifacts/qvm_v221_flat_vectorized/latest/portfolio_hashes.txt
+
+      # Optional future gates: factor checksums, diagnostics tolerances
+      # - name: Compare factor vector checksums (Gate 1)
+      #   run: python scripts/ci_compare_factors.py
+
+

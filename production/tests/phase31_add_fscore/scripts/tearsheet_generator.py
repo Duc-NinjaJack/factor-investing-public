@@ -370,7 +370,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     except Exception as e:
         print(f"⚠️ WARNING: Could not validate equity curve consistency: {e}")
     
-    fig = plt.figure(figsize=(18, 30))  # Reduced height since removing daily returns plot
+    fig = plt.figure(constrained_layout=True, figsize=(18, 30))  # Reduced height since removing daily returns plot
     gs = fig.add_gridspec(6, 2, height_ratios=[1.5, 0.8, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
     fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
 
@@ -497,7 +497,6 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     table.set_fontsize(14)
     table.scale(1, 2.5)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
     plt.show()
     
     return strategy_metrics
@@ -644,7 +643,7 @@ def create_comparison_plots(strategy_with_risk: pd.Series,
     figure_size = config.get('output', {}).get('plots', {}).get('figure_size', [16, 12])
     
     plt.style.use(plot_style)
-    fig, axes = plt.subplots(2, 2, figsize=tuple(figure_size))
+    fig, axes = plt.subplots(2, 2, figsize=tuple(figure_size), constrained_layout=True)
     
     strategy_name = config['strategy']['name']
     fig.suptitle(f'{strategy_name}: Risk Management vs No Risk Management vs Benchmark', 
@@ -758,7 +757,6 @@ def create_comparison_plots(strategy_with_risk: pd.Series,
     ax4.annotate(f'Sharpe: {ret_benchmark/vol_benchmark:.2f}', 
                  (vol_benchmark, ret_benchmark), xytext=(5, 5), textcoords='offset points')
     
-    plt.tight_layout()
     plt.show()
     
     print("✅ Comparison plots generated successfully!")

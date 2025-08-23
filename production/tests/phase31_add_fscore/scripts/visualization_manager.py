@@ -54,7 +54,7 @@ def generate_factor_score_evolution_plot(holdings_df: pd.DataFrame, logger: logg
             return
         
         # Create the plot
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=(12, 8), constrained_layout=True)
         
         # Plot each factor composite over time
         factors = ['Quality_Composite', 'Value_Composite', 'Momentum_Composite', 'Defensive_Composite', 'QVM_Composite']
@@ -89,7 +89,6 @@ def generate_factor_score_evolution_plot(holdings_df: pd.DataFrame, logger: logg
                        bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7),
                        fontsize=9)
         
-        plt.tight_layout()
         plt.show()
         
         # Display summary statistics
@@ -139,7 +138,7 @@ def generate_portfolio_holdings_distribution_plot(holdings_df: pd.DataFrame, por
             return
         
         # Create subplots for different distribution views
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12), constrained_layout=True)
         fig.suptitle('Portfolio Holdings Distribution Analysis', fontsize=16, fontweight='bold', y=0.95)
         
         # 1. Factor Score Distribution (Histogram)
@@ -204,7 +203,6 @@ def generate_portfolio_holdings_distribution_plot(holdings_df: pd.DataFrame, por
             ax4.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
                     f'{score:.2f}', ha='left', va='center', fontweight='bold')
         
-        plt.tight_layout()
         plt.show()
         
         # Display summary statistics
@@ -273,7 +271,7 @@ def create_performance_summary_chart(strategy_returns: pd.Series, benchmark_retu
         print("-" * 50)
         
         # Create subplots for performance analysis
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12), constrained_layout=True)
         fig.suptitle('QVM Strategy Performance Summary', fontsize=16, fontweight='bold', y=0.95)
         
         # 1. Cumulative Returns Comparison
@@ -339,7 +337,6 @@ def create_performance_summary_chart(strategy_returns: pd.Series, benchmark_retu
         ax4.set_xticks(x[::3])  # Show every 3rd month
         ax4.set_xticklabels([d.strftime('%Y-%m') for d in monthly_strategy.index[::3]], rotation=45)
         
-        plt.tight_layout()
         plt.show()
         
         print(f"✅ Performance Summary Chart Generated")

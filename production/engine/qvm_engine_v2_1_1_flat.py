@@ -374,7 +374,7 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
             for ticker in universe:
                 ticker_prices = price_data[price_data['ticker'] == ticker]['close']
                 if len(ticker_prices) >= 64:  # Need 64 prices for 63 returns
-                    returns = ticker_prices.pct_change().dropna()
+                    returns = ticker_prices.pct_change(fill_method=None).dropna()
                     if len(returns) >= 63:  # Need exactly 63 trading days
                         volatility_63d = returns.tail(63).std()
                         low_vol_raw[ticker] = -1 * volatility_63d  # Invert: low vol = high score

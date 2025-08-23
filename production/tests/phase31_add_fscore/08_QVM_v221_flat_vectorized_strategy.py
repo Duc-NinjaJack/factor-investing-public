@@ -29,7 +29,7 @@ import random
 import concurrent.futures
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -163,10 +163,10 @@ def _ensure_dir(path: Path) -> None:
 
 
 def _select_top_n_holdings(scores: Dict[str, Dict[str, float]], n: int) -> List[str]:
-    """Select top-N tickers with stable tie-break on ticker ascending.
+    """Select top-N tickers by `QVM_Composite` with deterministic tie-break.
 
-    Uses mergesort for stability to guarantee deterministic ordering when
-    `QVM_Composite` ties occur.
+    This simple selector is used as a fallback when constraints are not
+    provided. It returns a list of tickers only.
     """
     df = pd.DataFrame.from_dict(scores, orient="index")
     if df.empty or "QVM_Composite" not in df.columns:
@@ -175,6 +175,210 @@ def _select_top_n_holdings(scores: Dict[str, Dict[str, float]], n: int) -> List[
     df["ticker"] = df.index.astype(str)
     ranked = df.sort_values(by=["QVM_Composite", "ticker"], ascending=[False, True], kind="mergesort")
     return ranked["ticker"].tolist()[:n]
+
+
+def _load_sector_map(engine) -> Dict[str, str]:
+    """Load sector mapping for all tickers from `master_info`.
+
+    Returns a dict mapping ticker -> sector. Missing sectors will be mapped to
+    'Unknown'. Errors are caught and result in an empty dict.
+    """
+    try:
+        q = text("""
+            SELECT ticker, sector
+            FROM master_info
+            WHERE sector IS NOT NULL
+        """)
+        df = pd.read_sql(q, engine)
+        if df.empty:
+            return {}
+        df = df.drop_duplicates(subset=["ticker"]).fillna({"sector": "Unknown"})
+        return dict(zip(df["ticker"].astype(str), df["sector"].astype(str)))
+    except Exception:
+        return {}
+
+
+def _load_adv_20(engine, as_of: pd.Timestamp, tickers: List[str]) -> Dict[str, float]:
+    """Compute 20-trading-day ADV (VND) for provided tickers ending at `as_of`.
+
+    ADV is computed as the average of `total_value` over the last 20 trading days
+    available in `vcsc_daily_data_complete`. Returns mapping ticker -> ADV_VND.
+    Missing tickers will be absent from the result.
+    """
+    if not tickers:
+        return {}
+    try:
+        q = text("""
+            SELECT t.ticker, AVG(t.total_value) AS adv_vnd
+            FROM (
+              SELECT trading_date, ticker, total_value,
+                     ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY trading_date DESC) AS rn
+              FROM vcsc_daily_data_complete
+              WHERE ticker IN :tickers AND trading_date <= :as_of
+            ) t
+            WHERE t.rn <= 20
+            GROUP BY t.ticker
+        """)
+        df = pd.read_sql(q, engine, params={"tickers": tuple(set(map(str, tickers))), "as_of": pd.Timestamp(as_of)})
+        if df.empty:
+            return {}
+        return dict(zip(df["ticker"].astype(str), df["adv_vnd"].astype(float)))
+    except Exception:
+        return {}
+
+
+def _select_constrained_holdings(
+    scores: Dict[str, Dict[str, float]],
+    n: int,
+    sector_map: Optional[Dict[str, str]] = None,
+    sector_cap: Optional[float] = None,
+    prev_holdings: Optional[set] = None,
+    min_hold_months: int = 0,
+    ages: Optional[Dict[str, int]] = None,
+    adv_map_vnd: Optional[Dict[str, float]] = None,
+    adv_participation_cap: Optional[float] = None,
+    portfolio_notional_vnd: Optional[float] = None,
+) -> List[str]:
+    """Select holdings under sector/ADV caps and churn control.
+
+    - Sector caps: enforce max per-sector count = floor(sector_cap * n), at least 1.
+    - ADV cap: if `portfolio_notional_vnd` and `adv_participation_cap` provided, ensure
+      equal-weight notional per name (portfolio_notional_vnd / n) <= adv_participation_cap * ADV_20d_vnd.
+    - Churn control: if `min_hold_months` > 0 and `ages` provided, attempt to retain
+      names with age < min_hold_months.
+    """
+    base = pd.DataFrame.from_dict(scores, orient="index")
+    if base.empty or "QVM_Composite" not in base.columns:
+        return []
+    base = base.copy()
+    base["ticker"] = base.index.astype(str)
+    ranked = base.sort_values(["QVM_Composite", "ticker"], ascending=[False, True], kind="mergesort")["ticker"].tolist()
+
+    # Pre-compute caps
+    max_per_sector = None
+    if sector_map and isinstance(sector_cap, (int, float)) and sector_cap > 0:
+        max_per_sector = max(1, int(np.floor(float(sector_cap) * float(n))))
+
+    # Determine forced-retain tickers based on min holding period
+    forced: List[str] = []
+    if min_hold_months and ages and prev_holdings:
+        for t in sorted(prev_holdings):  # deterministic order
+            if ages.get(t, 0) < int(min_hold_months):
+                forced.append(t)
+
+    # Build selection
+    selected: List[str] = []
+    sector_counts: Dict[str, int] = {}
+
+    def _sector_ok(t: str) -> bool:
+        if max_per_sector is None:
+            return True
+        sec = (sector_map or {}).get(t, "Unknown")
+        return sector_counts.get(sec, 0) < max_per_sector
+
+    def _adv_ok(t: str) -> bool:
+        if portfolio_notional_vnd is None or adv_participation_cap is None or not adv_map_vnd:
+            return True
+        adv_vnd = float(adv_map_vnd.get(t, 0.0))
+        if adv_vnd <= 0.0:
+            return False
+        equal_notional = float(portfolio_notional_vnd) / float(n)
+        return equal_notional <= float(adv_participation_cap) * adv_vnd
+
+    # 1) Retain forced holdings first while respecting caps
+    for t in forced:
+        if t in ranked and t not in selected and _sector_ok(t) and _adv_ok(t):
+            selected.append(t)
+            if max_per_sector is not None:
+                sec = (sector_map or {}).get(t, "Unknown")
+                sector_counts[sec] = sector_counts.get(sec, 0) + 1
+        if len(selected) >= n:
+            break
+
+    # 2) Fill remaining slots by ranked order under caps
+    if len(selected) < n:
+        for t in ranked:
+            if t in selected:
+                continue
+            if not _sector_ok(t):
+                continue
+            if not _adv_ok(t):
+                continue
+            selected.append(t)
+            if max_per_sector is not None:
+                sec = (sector_map or {}).get(t, "Unknown")
+                sector_counts[sec] = sector_counts.get(sec, 0) + 1
+            if len(selected) >= n:
+                break
+
+    return selected[:n]
+
+
+def _compute_exposure_schedule(
+    price_matrix: pd.DataFrame,
+    benchmark_returns: pd.Series,
+    monthly_holdings: Dict[pd.Timestamp, List[str]],
+    monthly_calendar: List[pd.Timestamp],
+    vol_target_ann: float = 0.12,
+    vol_lookback_days: int = 63,
+    beta_lookback_days: int = 126,
+    exposure_bounds: Tuple[float, float] = (0.0, 1.0),
+) -> pd.Series:
+    """Create a daily exposure schedule to target volatility and beta.
+
+    Returns a Series indexed by trading date with values in [0,1] indicating
+    exposure (1 - cash). If insufficient history, defaults to 1.0 exposure.
+    """
+    if price_matrix.empty or not monthly_calendar:
+        return pd.Series(dtype="float64")
+
+    daily_ret = price_matrix.sort_index().pct_change(fill_method=None).fillna(0.0)
+    bench_ret = benchmark_returns.sort_index()
+    all_dates = daily_ret.index
+    sched = pd.Series(index=all_dates, dtype="float64")
+
+    # Build per-period equal-weight portfolio returns
+    for i, start in enumerate(monthly_calendar):
+        try:
+            end = monthly_calendar[i + 1]
+        except IndexError:
+            end = all_dates[-1] + pd.Timedelta(days=1)
+        period_mask = (all_dates >= start) & (all_dates < end)
+        period_dates = all_dates[period_mask]
+        if start not in monthly_holdings or len(period_dates) == 0:
+            continue
+        tickers = [t for t in monthly_holdings[start] if t in daily_ret.columns]
+        if not tickers:
+            continue
+        w = np.full(shape=(len(tickers),), fill_value=1.0 / float(len(tickers)))
+        port_ret = (daily_ret.loc[period_dates, tickers] @ w)
+
+        for d in period_dates:
+            # Vol targeting
+            hist = port_ret.loc[:d].tail(vol_lookback_days)
+            if len(hist) < max(20, int(vol_lookback_days/3)):
+                e_vol = 1.0
+            else:
+                vol_ann = float(hist.std(ddof=0)) * np.sqrt(252.0)
+                e_vol = 1.0 if vol_ann <= 1e-12 else float(vol_target_ann) / float(vol_ann)
+            # Beta targeting
+            hist_p = port_ret.loc[:d].tail(beta_lookback_days)
+            hist_b = bench_ret.loc[hist_p.index]
+            if len(hist_p) < max(20, int(beta_lookback_days/3)) or hist_b.std(ddof=0) <= 1e-12:
+                beta_hat = 1.0
+            else:
+                # OLS slope: cov(p,b)/var(b)
+                beta_hat = float(np.cov(hist_p, hist_b, ddof=0)[0, 1]) / float(hist_b.var(ddof=0))
+                if not np.isfinite(beta_hat) or beta_hat <= 0:
+                    beta_hat = 1.0
+            e_beta = 1.0 / beta_hat
+            e = min(max(e_vol, exposure_bounds[0]), exposure_bounds[1])
+            e = min(e, max(min(e_beta, exposure_bounds[1]), exposure_bounds[0]))
+            sched.loc[d] = float(np.clip(e, exposure_bounds[0], exposure_bounds[1]))
+
+    # Forward fill any gaps and clamp
+    sched = sched.ffill().fillna(1.0).clip(lower=exposure_bounds[0], upper=exposure_bounds[1])
+    return sched
 
 
 def _parse_active_window(backtest_cfg: Dict) -> Tuple[pd.Timestamp, pd.Timestamp]:
@@ -308,10 +512,30 @@ def _install_sql_counters(sql_engine):
 
 def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_cfg_local: Dict, portfolio_size: int) -> Dict:
     import time as _time
+    import os as _os
+    import random as _random
+    import numpy as _np
     from production.universe.constructors import get_liquid_universe as _get_univ
     from production.engine.qvm_engine_v2_2_1_flat import QVMEngineV221Flat as _Eng
     from production.database.connection import DatabaseManager as _DBM
     from production.engine.qvm_engine_v2_2_1_flat_vectorized import install_vectorized_fscore_221 as _install_vec
+    # Deterministic per-worker environment
+    try:
+        _os.environ.setdefault("MKL_NUM_THREADS", "1")
+        _os.environ.setdefault("OMP_NUM_THREADS", "1")
+        _os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    except Exception:
+        pass
+    try:
+        seed = int(_os.environ.get("QVM_SEED", "42"))
+        _np.random.seed(seed)
+        _random.seed(seed)
+    except Exception:
+        pass
+    try:
+        _np.set_printoptions(precision=12, floatmode='maxprec', suppress=False)
+    except Exception:
+        pass
     # Per-worker DB engine
     _db = _DBM()
     _db_engine = _db.get_engine()
@@ -330,40 +554,123 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
     except Exception:
         pass
 
-    # Universe
-    t_u0 = _time.perf_counter()
+    # Optional warm-up window (compute-only, emit-only target date)
+    warmup_months = 0
     try:
-        from production.universe.constructors import get_liquid_universe_and_counts as _get_univ_counts
-        univ, u_counts = _get_univ_counts(reb_date, _db_engine)
+        warmup_months = int(backtest_cfg_local.get('parallel', {}).get('warmup_months', 0))
+        warmup_months = max(0, min(12, warmup_months))
     except Exception:
-        univ = _get_univ(reb_date, _db_engine)
-        u_counts = {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0, 'selected_count': int(len(univ) or 0)}
-    elapsed_universe_ms = (_time.perf_counter() - t_u0) * 1000.0
-    if not univ:
-        return {
-            "date": pd.Timestamp(reb_date),
-            "universe_size": 0,
-            "had_scores": False,
-            "holdings": [],
-            "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
-            "elapsed_ms_factors": None,
-            "factor_coverage_rate": 0.0,
-            "sql_queries": db_counters["queries"] + eng_counters["queries"],
-            "sql_rows": db_counters["rows"] + eng_counters["rows"],
-            **u_counts,
-        }
+        warmup_months = 0
 
-    # Factors
-    t_f0 = _time.perf_counter()
-    scores = _engine.calculate_qvm_composite_fixed(reb_date, univ)
-    elapsed_factors_ms = (_time.perf_counter() - t_f0) * 1000.0
-    _et = getattr(_engine, '_last_timings', {}) or {}
-    if not scores:
+    dates_to_compute = [reb_date]
+    if warmup_months > 0:
+        try:
+            # Build prior monthly anchors using benchmark calendar if available in parent scope
+            anchor_idx = None
+            try:
+                # When called from the parallel path, we don't have benchmark series; synthesize month starts
+                anchor_idx = pd.date_range(end=reb_date, periods=warmup_months+1, freq='MS').to_list()
+            except Exception:
+                anchor_idx = [reb_date]
+            candidates = sorted(set([d for d in anchor_idx if d < reb_date]))[-warmup_months:]
+            dates_to_compute = candidates + [reb_date]
+        except Exception:
+            dates_to_compute = [reb_date]
+
+    last_scores = None
+    elapsed_universe_ms = None
+    for d in dates_to_compute:
+        # Universe
+        t_u0 = _time.perf_counter()
+        try:
+            from production.universe.constructors import get_liquid_universe_and_counts as _get_univ_counts
+            univ, u_counts = _get_univ_counts(d, _db_engine)
+        except Exception:
+            univ = _get_univ(d, _db_engine)
+            u_counts = {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0, 'selected_count': int(len(univ) or 0)}
+        elapsed_universe_ms = (_time.perf_counter() - t_u0) * 1000.0
+        if not univ:
+            if d != reb_date:
+                # Warm-up miss; continue to next date
+                continue
+            return {
+                "date": pd.Timestamp(reb_date),
+                "universe_size": 0,
+                "had_scores": False,
+                "holdings": [],
+                "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                "elapsed_ms_factors": None,
+                "factor_coverage_rate": 0.0,
+                "sql_queries": db_counters["queries"] + eng_counters["queries"],
+                "sql_rows": db_counters["rows"] + eng_counters["rows"],
+                **u_counts,
+            }
+        # Factors
+        t_f0 = _time.perf_counter()
+        last_scores = _engine.calculate_qvm_composite_fixed(d, univ)
+        elapsed_factors_ms = (_time.perf_counter() - t_f0) * 1000.0
+        _et = getattr(_engine, '_last_timings', {}) or {}
+        if d != reb_date:
+            # Warm-up iteration – discard outputs but keep caches warm
+            continue
+        if not last_scores:
+            return {
+                "date": pd.Timestamp(reb_date),
+                "universe_size": len(univ),
+                "had_scores": False,
+                "holdings": [],
+                "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                "elapsed_ms_factors": round(float(elapsed_factors_ms), 3),
+                "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+                "elapsed_ms_value": _et.get("elapsed_ms_value"),
+                "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+                "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+                "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+                "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
+                "factor_coverage_rate": 0.0,
+                "sql_queries": db_counters["queries"] + eng_counters["queries"],
+                "sql_rows": db_counters["rows"] + eng_counters["rows"],
+                **u_counts,
+            }
+        coverage = _compute_factor_coverage(last_scores)
+        # Apply sector and ADV caps in worker path (no churn control here)
+        try:
+            _sector_map = _load_sector_map(_db_engine)
+        except Exception:
+            _sector_map = {}
+        try:
+            _sector_cap = float(backtest_cfg_local.get('universe', {}).get('sector_concentration_limit', 0.20))
+        except Exception:
+            _sector_cap = 0.20
+        try:
+            _assumed_notional_vnd = float(backtest_cfg_local.get('portfolio', {}).get('assumed_notional_vnd', None))
+        except Exception:
+            _assumed_notional_vnd = None
+        try:
+            _adv_participation_cap = float(backtest_cfg_local.get('cost_model', {}).get('max_participation_rate', 0.05))
+        except Exception:
+            _adv_participation_cap = 0.05
+        try:
+            _adv_map = _load_adv_20(_db_engine, reb_date, list(last_scores.keys())) if _assumed_notional_vnd else {}
+        except Exception:
+            _adv_map = {}
+        holdings = _select_constrained_holdings(
+            scores=last_scores,
+            n=portfolio_size,
+            sector_map=_sector_map,
+            sector_cap=_sector_cap,
+            prev_holdings=None,
+            min_hold_months=0,
+            ages=None,
+            adv_map_vnd=_adv_map,
+            adv_participation_cap=_adv_participation_cap,
+            portfolio_notional_vnd=_assumed_notional_vnd,
+        )
         return {
             "date": pd.Timestamp(reb_date),
             "universe_size": len(univ),
-            "had_scores": False,
-            "holdings": [],
+            "had_scores": True,
+            "holdings": holdings or [],
             "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
             "elapsed_ms_factors": round(float(elapsed_factors_ms), 3),
             "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
@@ -372,32 +679,11 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
             "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
             "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
             "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
-            "factor_coverage_rate": 0.0,
+            "factor_coverage_rate": round(float(coverage), 4),
             "sql_queries": db_counters["queries"] + eng_counters["queries"],
             "sql_rows": db_counters["rows"] + eng_counters["rows"],
             **u_counts,
         }
-
-    coverage = _compute_factor_coverage(scores)
-    holdings = _select_top_n_holdings(scores, portfolio_size)
-    return {
-        "date": pd.Timestamp(reb_date),
-        "universe_size": len(univ),
-        "had_scores": True,
-        "holdings": holdings or [],
-        "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
-        "elapsed_ms_factors": round(float(elapsed_factors_ms), 3),
-        "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
-        "elapsed_ms_value": _et.get("elapsed_ms_value"),
-        "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
-        "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
-        "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
-        "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
-        "factor_coverage_rate": round(float(coverage), 4),
-        "sql_queries": db_counters["queries"] + eng_counters["queries"],
-        "sql_rows": db_counters["rows"] + eng_counters["rows"],
-        **u_counts,
-    }
 
 def main():
     logger = _setup_logger()
@@ -455,7 +741,7 @@ def main():
     db_engine = db.get_engine()
 
     # Strategy parameters
-    portfolio_size = strategy_cfg.get("strategy", {}).get("portfolio", {}).get("portfolio_size", 20)
+    portfolio_size = strategy_cfg.get("strategy", {}).get("portfolio", {}).get("portfolio_size", 50)
     tc_bps = backtest_cfg.get("transaction_cost_bps", 10.0)
     start_date, end_date = _parse_active_window(backtest_cfg)
 
@@ -577,6 +863,32 @@ def main():
             logger.warning(f"Vectorized F-Score enablement failed; falling back to non-vectorized path: {e}")
         eng_counters = _install_sql_counters(engine.engine)
         prev_holdings_set: set = set()
+        # Constraints and churn control configuration
+        try:
+            min_hold_months = int(backtest_cfg.get('rebalance', {}).get('min_holding_months', 0))
+        except Exception:
+            min_hold_months = 0
+        try:
+            sector_cap = float(backtest_cfg.get('universe', {}).get('sector_concentration_limit', 0.20))
+        except Exception:
+            sector_cap = 0.20
+        try:
+            adv_participation_cap = float(backtest_cfg.get('cost_model', {}).get('max_participation_rate', 0.05))
+        except Exception:
+            adv_participation_cap = 0.05
+        try:
+            assumed_notional_vnd = float(backtest_cfg.get('portfolio', {}).get('assumed_notional_vnd', None))
+        except Exception:
+            assumed_notional_vnd = None
+        # Load sector map once for the run
+        try:
+            sector_map_global = _load_sector_map(db_engine)
+        except Exception:
+            sector_map_global = {}
+        # Track holding ages (in months) to enforce minimum holding period
+        holding_ages: Dict[str, int] = {}
+        # Enriched holdings for instrumentation panels
+        enriched_rows: List[Dict] = []
         for reb_date in monthly_dates:
             # Snapshot SQL counters at loop start
             db_q0, db_r0 = db_counters["queries"], db_counters["rows"]
@@ -673,7 +985,23 @@ def main():
             # Factor coverage before selection
             coverage = _compute_factor_coverage(scores)
 
-            holdings = _select_top_n_holdings(scores, portfolio_size)
+            # Apply constrained selection: sector caps, ADV capacity, and churn control
+            try:
+                adv_map = _load_adv_20(db_engine, reb_date, list(scores.keys())) if assumed_notional_vnd else {}
+            except Exception:
+                adv_map = {}
+            holdings = _select_constrained_holdings(
+                scores=scores,
+                n=portfolio_size,
+                sector_map=sector_map_global,
+                sector_cap=sector_cap,
+                prev_holdings=prev_holdings_set,
+                min_hold_months=min_hold_months,
+                ages=holding_ages,
+                adv_map_vnd=adv_map,
+                adv_participation_cap=adv_participation_cap,
+                portfolio_notional_vnd=assumed_notional_vnd,
+            )
             if not holdings:
                 logger.warning(f"No holdings on {reb_date.date()} - skipping")
                 diag_rows.append({
@@ -717,6 +1045,25 @@ def main():
             overlap = len(prev_holdings_set.intersection(current_set)) if prev_holdings_set else 0
             turnover = 1.0 - (overlap / float(len(current_set))) if current_set else 0.0
             prev_holdings_set = current_set
+            # Update ages map
+            new_ages: Dict[str, int] = {}
+            for t in current_set:
+                new_ages[t] = int(holding_ages.get(t, 0)) + 1
+            holding_ages = new_ages
+            # Enrich per-name records for instrumentation (scores + sector)
+            eq_w = (1.0 / float(len(holdings))) if holdings else 0.0
+            for t in holdings:
+                s = scores.get(t, {})
+                enriched_rows.append({
+                    'date': pd.Timestamp(reb_date),
+                    'ticker': t,
+                    'quality_score': s.get('Quality_Composite'),
+                    'value_score': s.get('Value_Composite'),
+                    'momentum_score': s.get('Momentum_Composite'),
+                    'composite_score': s.get('QVM_Composite'),
+                    'sector': sector_map_global.get(t, 'Unknown'),
+                    'weight': eq_w,
+                })
             diag_rows.append({
                 "date": pd.Timestamp(reb_date),
                 "universe_size": len(universe) if universe else 0,
@@ -861,16 +1208,23 @@ def main():
     
     all_holdings = {d: all_holdings[d] for d in cal}
 
-    # Save holdings artifact (calendar-aligned) - deterministically sorted
-    h_rows = []
-    for d, lst in all_holdings.items():
-        # Enforce deterministic ticker ordering within a date as a stable tiebreaker
-        for t in sorted(lst):
-            h_rows.append({"date": pd.Timestamp(d), "ticker": t})
-    holdings_df = pd.DataFrame(h_rows)
-    if not holdings_df.empty:
-        holdings_df = holdings_df.sort_values(["date", "ticker"], kind="mergesort").reset_index(drop=True)
-    holdings_df.to_csv(artifacts_dir / 'monthly_holdings.csv', index=False)
+    # Save holdings artifact (calendar-aligned). Prefer enriched export if available.
+    if 'enriched_rows' in locals() and enriched_rows:
+        holdings_df = pd.DataFrame(enriched_rows)
+        holdings_df = holdings_df[holdings_df['date'].isin(cal)] if not holdings_df.empty else holdings_df
+        if not holdings_df.empty:
+            holdings_df = holdings_df.sort_values(["date", "ticker"], kind="mergesort").reset_index(drop=True)
+        holdings_df.to_csv(artifacts_dir / 'monthly_holdings.csv', index=False)
+    else:
+        h_rows = []
+        for d, lst in all_holdings.items():
+            # Enforce deterministic ticker ordering within a date as a stable tiebreaker
+            for t in sorted(lst):
+                h_rows.append({"date": pd.Timestamp(d), "ticker": t})
+        holdings_df = pd.DataFrame(h_rows)
+        if not holdings_df.empty:
+            holdings_df = holdings_df.sort_values(["date", "ticker"], kind="mergesort").reset_index(drop=True)
+        holdings_df.to_csv(artifacts_dir / 'monthly_holdings.csv', index=False)
 
     # Emit per-date portfolio hash file for golden-window comparisons
     try:
@@ -926,14 +1280,27 @@ def main():
     slippage_bps = float(backtest_cfg.get('slippage_bps', 0.0))
     bt_cfg = BacktestConfig(transaction_cost_bps=tc_bps, portfolio_size=portfolio_size, slippage_bps=slippage_bps)
 
-    def overlay_fn(bench_prices: pd.Series, current_date: pd.Timestamp) -> float:
-        risk_cfg = strategy_cfg.get("risk_management", {})
-        method = risk_cfg.get("method", "drawdown_based")
-        rules = risk_cfg.get("cash_allocation", {})
-        if method == "ewma_drawdown":
-            from production.risk.overlay import ewma_drawdown_cash_allocation
-            return ewma_drawdown_cash_allocation(bench_prices, current_date)
-        return drawdown_to_cash_allocation(bench_prices, current_date, rules)
+    # Volatility/beta targeting exposure schedule → cash overlay
+    try:
+        vol_target_ann = float(backtest_cfg.get('risk_overlay', {}).get('volatility_target', 0.11))
+    except Exception:
+        vol_target_ann = 0.11
+    exposure_schedule = _compute_exposure_schedule(
+        price_matrix=price_matrix,
+        benchmark_returns=benchmark_returns,
+        monthly_holdings=all_holdings,
+        monthly_calendar=cal,
+        vol_target_ann=vol_target_ann,
+    )
+    def overlay_fn(_bench_prices: pd.Series, current_date: pd.Timestamp) -> float:
+        try:
+            exp = float(exposure_schedule.reindex([current_date]).iloc[0])
+            if not np.isfinite(exp):
+                exp = 1.0
+        except Exception:
+            exp = 1.0
+        # cash = 1 - exposure
+        return float(np.clip(1.0 - exp, 0.0, 0.99))
 
     # No-risk path
     no_risk_returns, no_risk_equity, _ = run_daily_pnl(

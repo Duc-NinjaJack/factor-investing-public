@@ -1,0 +1,233 @@
+{
+  "data": {
+    "fundamental_data": {
+      "max_staleness_days": 180,
+      "min_coverage": 0.7
+    },
+    "price_data": {
+      "forward_fill": true,
+      "min_price": 1000
+    },
+    "tables": {
+      "benchmark": "vnindex_daily",
+      "daily_data": "vcsc_daily_data_complete",
+      "fundamental_data": "vcsc_fundamental_data"
+    }
+  },
+  "f_score": {
+    "use_vectorized_fscore_221": false
+  },
+  "factor_weights": {
+    "defensive": 0.25,
+    "momentum": 0.25,
+    "quality": 0.25,
+    "value": 0.25
+  },
+  "file_info": {
+    "dependencies": "Requires PyYAML for loading",
+    "last_updated": "2025-08-17",
+    "location": "config/strategy_config_v2_0_1_simple.yml",
+    "usage": "Used by 06_QVM_risk_comparison.py for risk management comparison"
+  },
+  "flat_composite_weights": {
+    "defensive": {
+      "low_volatility": 1.0
+    },
+    "momentum": {
+      "contrarian_momentum": 0.4,
+      "positive_momentum": 0.6
+    },
+    "quality_banking": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "quality_enhanced_banking": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "quality_enhanced_non_financial": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "quality_enhanced_securities": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "quality_non_financial": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "quality_securities": {
+      "f_score": 0.5,
+      "roaa": 0.5
+    },
+    "value": {
+      "earnings_yield": 0.5,
+      "fcf_yield": 0.5
+    },
+    "value_enhanced": {
+      "earnings_yield": 0.5,
+      "fcf_yield": 0.5
+    }
+  },
+  "momentum": {
+    "lookback_periods": {
+      "contrarian_momentum": [
+        1,
+        12
+      ],
+      "positive_momentum": [
+        3,
+        6
+      ]
+    },
+    "metrics": {
+      "contrarian_momentum": {
+        "enabled": true,
+        "periods": [
+          1,
+          12
+        ],
+        "weight": 0.4
+      },
+      "positive_momentum": {
+        "enabled": true,
+        "periods": [
+          3,
+          6
+        ],
+        "weight": 0.6
+      }
+    },
+    "skip_months": 1,
+    "timeframe_weights": {
+      "contrarian_momentum": 0.4,
+      "positive_momentum": 0.6
+    }
+  },
+  "output": {
+    "logging": {
+      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+      "level": "INFO"
+    },
+    "plots": {
+      "enabled": true,
+      "figure_size": [
+        16,
+        12
+      ],
+      "style": "seaborn-v0_8"
+    },
+    "tearsheet": {
+      "enabled": true,
+      "include_cash_allocation": true,
+      "include_comparison_plots": true
+    }
+  },
+  "performance": {
+    "metrics": [
+      "annualized_return",
+      "volatility",
+      "sharpe_ratio",
+      "max_drawdown",
+      "calmar_ratio",
+      "information_ratio",
+      "beta"
+    ],
+    "rebalancing_frequency": "M",
+    "transaction_costs": {
+      "enabled": false
+    }
+  },
+  "quality": {
+    "metrics": {
+      "fscore": {
+        "calculation": "Piotroski F-Score (sector-specific)",
+        "enabled": true,
+        "normalization": "Raw score / max_score for sector",
+        "variants": {
+          "banking": 6,
+          "non_financial": 9,
+          "securities": 5
+        },
+        "weight": 0.5
+      },
+      "roaa": {
+        "calculation": "NetProfit_TTM / AvgTotalAssets",
+        "enabled": true,
+        "normalization": "0-15% range normalized to 0-1",
+        "weight": 0.5
+      }
+    },
+    "tier_weights": {
+      "fscore": 0.5,
+      "roaa": 0.5
+    }
+  },
+  "qvm_composite": {
+    "enhanced_weights": {
+      "defensive": 0.25,
+      "momentum": 0.25,
+      "quality": 0.25,
+      "value": 0.25
+    },
+    "weights": {
+      "defensive": 0.25,
+      "momentum": 0.25,
+      "quality": 0.25,
+      "value": 0.25
+    }
+  },
+  "risk_management": {
+    "cash_allocation": {
+      "drawdown_10": 0.2,
+      "drawdown_15": 0.4,
+      "drawdown_20": 0.6,
+      "drawdown_25": 0.8,
+      "drawdown_5": 0.0
+    },
+    "default_cash": 0.05,
+    "enabled": true
+  },
+  "strategy": {
+    "date_range": {
+      "end": "2025-12-31",
+      "start": "2016-01-01"
+    },
+    "description": "Quality, Value, Momentum and Defensive strategy with simple factor definitions",
+    "name": "QVM Simple Factors",
+    "portfolio": {
+      "portfolio_size": 20,
+      "starting_capital": 10000000000,
+      "universe_size": 728
+    },
+    "version": "2.0.1"
+  },
+  "value": {
+    "metric_weights": {
+      "earnings_yield": 0.5,
+      "fcf_yield": 0.5
+    },
+    "metrics": {
+      "earnings_yield": {
+        "calculation": "NetProfit_TTM / Market_Cap",
+        "enabled": true,
+        "weight": 0.5
+      },
+      "fcf_yield": {
+        "calculation": "FCF / Market_Cap",
+        "enabled": true,
+        "weight": 0.5
+      }
+    },
+    "revenue_metrics": {
+      "enabled": false
+    }
+  },
+  "weights": {
+    "defensive": 0.25,
+    "momentum": 0.25,
+    "quality": 0.25,
+    "value": 0.25
+  }
+}

@@ -42,7 +42,7 @@ universe:
   top_n_stocks: 200
   min_adtv_vnd: 10_000_000_000  # 10B VND minimum
   min_adtv_pct_mcap: 0.0004     # 0.04% of market cap
-  sector_concentration_limit: 0.25  # 25% max per sector
+  sector_concentration_limit: 0.20  # 20% max per sector
   foreign_ownership_buffer: 0.03    # 3% minimum foreign room
 
 # === FACTOR WEIGHTS & OPTIMIZATION ===
@@ -70,7 +70,7 @@ cost_model:
   
 # === RISK OVERLAY ===
 risk_overlay:
-  volatility_target: 0.15      # 15% vol target
+  volatility_target: 0.10      # 10% vol target
   
   # Regime detection
   regime_vol_threshold: 0.25   # 25% rolling vol triggers regime
@@ -87,6 +87,7 @@ portfolio:
   max_leverage: 1.5            # Maximum 1.5x for aggressive variants
   rebalance_frequency: "quarterly"  # Q, M, or custom
   concentration_limit: 0.20    # 20% max single position
+  assumed_notional_vnd: 200000000000  # Activates ADV capacity cap
 
 # === TRANSACTION COSTS ===
 transaction_cost_bps: 10       # Explicit default 10 bps unless overridden
@@ -99,7 +100,7 @@ benchmark:
 # === FUNDAMENTALS TIMING ===
 # Use fundamentals-aware rebalance anchors with reporting lag (days after quarter-end)
 fundamentals:
-  reporting_lag_days: 75
+  reporting_lag_days: 60
 
 # === OUTPUT & REPORTING ===
 output:
@@ -117,6 +118,10 @@ normalization:
 
 # === CALENDAR / ANCHOR POLICY ===
 rebalance_anchor_policy: "nearest:3d"  # holdings|price|intersection|nearest:tolerance_days
+
+# === REBALANCE CONTROLS ===
+rebalance:
+  min_holding_months: 1  # Churn control
 
 # === PARALLEL CONTROLS ===
 parallel:

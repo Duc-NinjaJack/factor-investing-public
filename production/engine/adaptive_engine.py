@@ -7,6 +7,12 @@ from scipy.optimize import minimize
 import yaml
 from pathlib import Path
 import sys
+# Enforce parallel spawn early and disable DB in children if used in multiprocessing
+try:
+    from production.utils.parallel import ensure_spawn_start_method, disable_db_access_in_children
+    ensure_spawn_start_method()
+except Exception:
+    pass
 
 # Ensure the project root is in the path to find other modules
 try:
@@ -191,7 +197,8 @@ class PortfolioEngine_v2_0:
         try:
             recent_returns = temp_equity_curve.pct_change(fill_method=None).dropna()
         except TypeError:
-            recent_returns = temp_equity_curve.pct_change().dropna()
+            # Ensure explicit fill_method=None to avoid deprecation warnings
+            recent_returns = temp_equity_curve.pct_change(fill_method=None).dropna()
         if len(recent_returns) < 63: vol_exposure = 1.0
         else:
             realized_vol = recent_returns.tail(63).std() * np.sqrt(252)

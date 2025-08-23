@@ -28,7 +28,7 @@ print(results_df)
 # Set up plotting style
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
-fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
 fig.suptitle('QVM Engine v3j Component Contribution Analysis', fontsize=16, fontweight='bold')
 
 # %%
@@ -117,8 +117,7 @@ for bar, value in zip(bars, improvements):
     ax4.text(bar.get_x() + bar.get_width()/2., height + 5,
              f'+{value:.1f}%', ha='center', va='bottom', fontweight='bold')
 
-plt.tight_layout()
-plt.savefig('insights/component_performance_comparison.png', dpi=300, bbox_inches='tight')
+plt.savefig('insights/component_performance_comparison.png', dpi=300)
 plt.show()
 
 # %%

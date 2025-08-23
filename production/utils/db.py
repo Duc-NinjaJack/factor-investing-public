@@ -72,11 +72,11 @@ def load_all_data_for_backtest(config: dict, db_engine: create_engine) -> tuple:
 
     # --- Data Preparation ---
     logger.info("Preparing data for backtesting engine...")
-    price_data['return'] = price_data.groupby('ticker')['close'].pct_change()
+    price_data['return'] = price_data.groupby('ticker')['close'].pct_change(fill_method=None)
     daily_returns_matrix = price_data.pivot(index='date', columns='ticker', values='return')
     logger.info(f"Created daily returns matrix with shape: {daily_returns_matrix.shape}")
 
-    benchmark_returns = benchmark_data.set_index('date')['close'].pct_change().rename('VN-Index')
+    benchmark_returns = benchmark_data.set_index('date')['close'].pct_change(fill_method=None).rename('VN-Index')
     logger.info(f"Prepared benchmark returns series with {len(benchmark_data)} data points.")
 
     return factor_data, daily_returns_matrix, benchmark_returns

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union
 from contextlib import contextmanager
 import warnings
+import os
 
 # Database drivers
 try:
@@ -190,6 +191,12 @@ class DatabaseManager:
         """
         if not SQLALCHEMY_AVAILABLE:
             raise DatabaseConnectionError("SQLAlchemy not available")
+        # Parallelism safety guard: prohibit DB creation in child processes when flagged
+        try:
+            if os.environ.get('DISABLE_DB_IN_CHILDREN') == '1':
+                raise DatabaseConnectionError("DB engine creation disabled in child process")
+        except Exception:
+            pass
         
         # Check cache
         cache_key = f"engine_{self.environment}"
@@ -253,6 +260,12 @@ class DatabaseManager:
         """
         if not PYMYSQL_AVAILABLE:
             raise DatabaseConnectionError("PyMySQL not available")
+        # Parallelism safety guard
+        try:
+            if os.environ.get('DISABLE_DB_IN_CHILDREN') == '1':
+                raise DatabaseConnectionError("DB connection creation disabled in child process")
+        except Exception:
+            pass
         
         # Check cache
         cache_key = f"connection_{self.environment}"

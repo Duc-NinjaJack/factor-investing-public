@@ -262,7 +262,7 @@ class MarketDataLoader:
         vnindex_df = pd.read_sql(query, self._conn, params=[date, lookback_days, date])
         
         if len(vnindex_df) > 20:
-            vnindex_df['returns'] = vnindex_df['close'].pct_change()
+            vnindex_df['returns'] = vnindex_df['close'].pct_change(fill_method=None)
             
             # Calculate volatility metrics
             current_vol = vnindex_df['returns'].tail(20).std() * np.sqrt(252) * 100
@@ -298,7 +298,7 @@ class MarketDataLoader:
                 returns_df = pd.read_sql(returns_query, self._conn, params=params)
                 
                 # Pivot and calculate correlation
-                returns_pivot = returns_df.pivot(index='date', columns='ticker', values='close').pct_change()
+                returns_pivot = returns_df.pivot(index='date', columns='ticker', values='close').pct_change(fill_method=None)
                 current_corr = returns_pivot.tail(20).corr().values
                 avg_correlation = current_corr[np.triu_indices_from(current_corr, k=1)].mean()
             else:

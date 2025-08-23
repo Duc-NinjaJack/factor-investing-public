@@ -251,6 +251,9 @@ class QVMEngineV201Flat:
         # Load configurations
         self._load_configurations()
         
+        # Load backtest normalization config (single source of truth)
+        self._load_backtest_normalization_config()
+
         # Load flat composite weights
         self._load_flat_composite_weights()
         
@@ -327,6 +330,38 @@ class QVMEngineV201Flat:
         except Exception as e:
             self.logger.error(f"Failed to load configurations: {e}")
             raise
+
+    def _load_backtest_normalization_config(self) -> None:
+        """Load normalization controls from backtest_config.yml."""
+        try:
+            project_root = Path(__file__).parent.parent
+            backtest_cfg_path = project_root / 'config' / 'backtest_config.yml'
+            with open(backtest_cfg_path, 'r') as f:
+                backtest_cfg = yaml.safe_load(f)
+            norm_cfg = backtest_cfg.get('normalization', {}) or {}
+            # Expected keys: min_sector_size, robust, fallback
+            self.normalization_config = {
+                'min_sector_size': norm_cfg.get('min_sector_size', 'dynamic'),
+                'robust': norm_cfg.get('robust', 'median_mad'),
+                'fallback': norm_cfg.get('fallback', ['sector', 'industry', 'market']),
+            }
+            # Anchor policy also used elsewhere
+            self.rebalance_anchor_policy = backtest_cfg.get('rebalance_anchor_policy', 'nearest:3d')
+            self.logger.info(
+                "Normalization config loaded: min_sector_size=%s | robust=%s | fallback=%s",
+                str(self.normalization_config['min_sector_size']),
+                self.normalization_config['robust'],
+                ','.join(self.normalization_config['fallback']) if isinstance(self.normalization_config['fallback'], list) else str(self.normalization_config['fallback'])
+            )
+        except Exception as e:
+            # Safe defaults
+            self.normalization_config = {
+                'min_sector_size': 'dynamic',
+                'robust': 'median_mad',
+                'fallback': ['sector', 'industry', 'market'],
+            }
+            self.rebalance_anchor_policy = 'nearest:3d'
+            self.logger.warning(f"Failed to load backtest normalization config, using defaults: {e}")
     
     def _load_flat_composite_weights(self):
         """Load flat composite weights from configuration file with sector-specific structure."""
@@ -559,83 +594,125 @@ class QVMEngineV201Flat:
                 except Exception:
                     pass
             
-            # Configurable threshold: default to 10 if not provided by runner/engine
-            min_sector_size = getattr(self, 'min_sector_size', 10)
+            # Resolve dynamic min sector size per universe if configured
+            try:
+                universe_size = int(data['ticker'].nunique()) if 'ticker' in data.columns else int(len(data))
+            except Exception:
+                universe_size = int(len(data))
 
-            # INSTITUTIONAL THRESHOLD: Use sector-neutral unless sector is very small
-            # This is the CORRECTED logic - sector-neutral is PRIMARY, not fallback
-            use_sector_neutral = True
-            for sector, count in sector_counts.items():
-                if count < min_sector_size:
-                    self.logger.info(f"Sector '{sector}' has only {count} tickers - may use cross-sectional fallback (min={min_sector_size})")
-                    # Check if this is the only sector or if we have multiple small sectors
-                    if len(sector_counts) == 1 or (sector_counts < min_sector_size).all():
-                        use_sector_neutral = False
-                        break
-            
-            if use_sector_neutral:
-                # PRIMARY METHODOLOGY: Sector-neutral normalization
-                self.logger.debug("Using PRIMARY sector-neutral normalization (institutional standard)")
-                
-                def sector_zscore(group):
-                    values = group[metric_column].dropna()
-                    if len(values) < 2:
-                        # For very small groups, return neutral scores
-                        return pd.Series(0.0, index=group.index)
-                    mean_val = values.mean()
-                    std_val = values.std()
-                    if std_val == 0:
-                        # No variation within sector - all get neutral scores
-                        return pd.Series(0.0, index=group.index)
-                    # Pure alpha extraction within sector
-                    return (group[metric_column] - mean_val) / std_val
-                
-                # Apply sector-neutral normalization
-                z_scores = data.groupby(sector_column, group_keys=False).apply(sector_zscore)
-                
-                # Ensure proper index alignment
-                if isinstance(z_scores, pd.DataFrame):
-                    z_scores = z_scores.iloc[:, 0]  # Extract series if needed
-                
-                z_scores = z_scores.reindex(data.index, fill_value=0)
-                
+            min_cfg = (self.normalization_config.get('min_sector_size')
+                       if hasattr(self, 'normalization_config') else 'dynamic')
+            if isinstance(min_cfg, int):
+                min_sector_size = int(min_cfg)
             else:
-                # FALLBACK: Cross-sectional normalization (only for very small universes)
-                # Demote to DEBUG by default; escalate to WARN if sustained high fraction of small sectors
-                small_fraction = float((sector_counts < min_sector_size).mean()) if len(sector_counts) > 0 else 1.0
-                msg = (
-                    f"Using FALLBACK cross-sectional normalization (small_sectors_frac={small_fraction:.2f}, "
-                    f"min_sector_size={min_sector_size})"
-                )
-                try:
-                    # Tracker is typically attached by runner; fall back to module-level singleton
-                    tracker = getattr(self, '_norm_fallback_tracker', None)
-                    if tracker is None and NormalizationFallbackTracker is not None:
-                        tracker = NormalizationFallbackTracker()
-                        setattr(self, '_norm_fallback_tracker', tracker)
-                except Exception:
-                    tracker = None
-                if tracker is not None and tracker.update_and_should_warn(small_fraction):
-                    self.logger.warning(msg)
+                # dynamic: min(10, max(3, round(0.02 * universe_size)))
+                dynamic_val = max(3, int(round(0.02 * universe_size)))
+                min_sector_size = min(10, dynamic_val)
+
+            robust_method = (self.normalization_config.get('robust')
+                             if hasattr(self, 'normalization_config') else 'median_mad')
+            fallback_order = (self.normalization_config.get('fallback')
+                              if hasattr(self, 'normalization_config') else ['sector', 'industry', 'market'])
+            # Normalize fallback order values
+            fallback_order = [str(x).lower() for x in (fallback_order or ['sector', 'industry', 'market'])]
+
+            # Helper: robust z-score using median/MAD
+            def robust_zscore(series: pd.Series) -> pd.Series:
+                vals = series.astype(float)
+                med = vals.median()
+                mad = (vals - med).abs().median()
+                scale = 1.4826 * mad if mad and mad > 0 else float(vals.std() if vals.std() > 0 else 1.0)
+                if scale == 0:
+                    return pd.Series(0.0, index=series.index)
+                return (vals - med) / scale
+
+            # Helper: standard z-score
+            def standard_zscore(series: pd.Series) -> pd.Series:
+                vals = series.astype(float)
+                mean_val = vals.mean()
+                std_val = vals.std()
+                if std_val == 0:
+                    return pd.Series(0.0, index=series.index)
+                return (vals - mean_val) / std_val
+
+            # Helper: apply James–Stein style shrinkage for thin groups
+            def apply_shrinkage(group_scores: pd.Series, group_size: int) -> pd.Series:
+                if group_size >= min_sector_size or min_sector_size <= 0:
+                    return group_scores
+                shrink = float(group_size) / float(min_sector_size)
+                # shrink towards 0 (global mean of z-scores)
+                return group_scores * shrink
+
+            # Main hierarchical normalization
+            z_scores = pd.Series(index=data.index, dtype=float)
+
+            # Track fraction of small sectors for WARN demotion policy
+            small_fraction = float((sector_counts < min_sector_size).mean()) if len(sector_counts) > 0 else 1.0
+
+            remaining_idx = pd.Index(data.index)
+
+            for level in fallback_order:
+                if remaining_idx.empty:
+                    break
+
+                if level == 'sector' and sector_column in data.columns:
+                    group_key = data.loc[remaining_idx, sector_column]
+                elif level == 'industry' and 'industry' in data.columns:
+                    group_key = data.loc[remaining_idx, 'industry']
+                elif level in ('market', 'all', 'global'):
+                    group_key = pd.Series('market', index=remaining_idx)
                 else:
-                    self.logger.debug(msg)
-                
-                values = data[metric_column].dropna()
-                if len(values) > 1:
-                    mean_val = values.mean()
-                    std_val = values.std()
-                    if std_val > 0:
-                        z_scores = (data[metric_column] - mean_val) / std_val
-                    else:
-                        z_scores = pd.Series(0.0, index=data.index)
-                else:
-                    z_scores = pd.Series(0.0, index=data.index)
+                    # Level not available, skip
+                    continue
+
+                # Compute z-scores per group for this level
+                def compute_group(group: pd.DataFrame) -> pd.Series:
+                    series = group[metric_column]
+                    # Choose robust or standard method
+                    if level in ('market', 'all', 'global'):
+                        z = robust_zscore(series) if robust_method == 'median_mad' else standard_zscore(series)
+                        return z
+                    # Within-group standard z-score
+                    z = standard_zscore(series)
+                    # Apply shrinkage for thin groups
+                    return apply_shrinkage(z, group_size=len(series.dropna()))
+
+                grouped = data.loc[remaining_idx].groupby(group_key, dropna=False)
+                level_scores = grouped.apply(lambda g: compute_group(g)).reset_index(level=0, drop=True)
+
+                # Assign where not yet filled and available
+                assignable = level_scores.index
+                z_scores.loc[assignable] = z_scores.loc[assignable].where(z_scores.loc[assignable].notna(), level_scores)
+
+                # Update remaining indices (those still NaN)
+                remaining_idx = z_scores[z_scores.isna()].index
+
+            # For any still-missing values (all-NaN), set to 0
+            if z_scores.isna().any():
+                z_scores = z_scores.fillna(0.0)
+
+            # Demote fallback logging to DEBUG; WARN only on sustained high fraction via tracker
+            try:
+                tracker = getattr(self, '_norm_fallback_tracker', None)
+                if tracker is None and NormalizationFallbackTracker is not None:
+                    tracker = NormalizationFallbackTracker()
+                    setattr(self, '_norm_fallback_tracker', tracker)
+            except Exception:
+                tracker = None
+
+            msg = (
+                f"Normalization pipeline: order={fallback_order} | min_sector_size={min_sector_size} | "
+                f"small_sectors_frac={small_fraction:.2f}"
+            )
+            if tracker is not None and tracker.update_and_should_warn(small_fraction):
+                self.logger.warning(msg)
+            else:
+                self.logger.debug(msg)
             
             # Winsorization at 3 standard deviations (institutional standard)
             z_scores = z_scores.clip(-3, 3)
             
-            methodology = "sector-neutral" if use_sector_neutral else "cross-sectional"
-            self.logger.info(f"Calculated {methodology} z-scores for {len(z_scores)} observations")
+            self.logger.info(f"Calculated hierarchical normalized z-scores for {len(z_scores)} observations")
             
             return z_scores
             

@@ -1,0 +1,6 @@
+{
+  "force_parallel": false,
+  "jobs": 4,
+  "num_rebalance_dates": 1,
+  "wall_clock_ms": 51950.578
+}
