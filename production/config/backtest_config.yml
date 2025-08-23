@@ -88,6 +88,9 @@ portfolio:
   rebalance_frequency: "quarterly"  # Q, M, or custom
   concentration_limit: 0.20    # 20% max single position
 
+# === TRANSACTION COSTS ===
+transaction_cost_bps: 10       # Explicit default 10 bps unless overridden
+
 # === BENCHMARK & ATTRIBUTION ===
 benchmark:
   primary: "VN_INDEX"
@@ -108,4 +111,16 @@ output:
 
 # === NORMALIZATION CONTROLS ===
 normalization:
-  min_sector_size: 5
+  min_sector_size: dynamic     # dynamic | int; dynamic = max(3, round(0.02*universe_size)) cap at 10
+  robust: median_mad           # robust z-score method for global fallback
+  fallback: [sector, industry, market]
+
+# === CALENDAR / ANCHOR POLICY ===
+rebalance_anchor_policy: "nearest:3d"  # holdings|price|intersection|nearest:tolerance_days
+
+# === PARALLEL CONTROLS ===
+parallel:
+  enabled: true
+  backend: ray
+  start_method: spawn
+  chunk_size: auto

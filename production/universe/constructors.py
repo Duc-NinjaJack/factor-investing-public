@@ -197,6 +197,93 @@ def validate_universe_construction(
     return validation
 
 
+from typing import Tuple as _Tuple
+
+
+def get_liquid_universe_and_counts(
+    analysis_date: pd.Timestamp,
+    engine,
+    config: Optional[Dict] = None
+) -> _Tuple[List[str], Dict[str, int]]:
+    """
+    Construct liquid universe and return both the tickers and diagnostics counts.
+
+    Diagnostics returned:
+      - candidates: number of tickers with computed liquidity metrics in the window
+      - fail_trading_days: number filtered out by insufficient trading day coverage
+      - fail_adtv: number filtered out by ADTV threshold among those passing trading days
+      - selected_count: number of tickers after filtering and top-N selection
+    """
+    default_config = {
+        'lookback_days': 63, 'adtv_threshold_bn': 10.0,
+        'top_n': 200, 'min_trading_coverage': 0.6
+    }
+    final_config = {**default_config, **(config or {})}
+
+    # Recreate core metrics DataFrame (dup minimal logic from worker to keep API stable)
+    end_date = analysis_date - timedelta(days=1)
+    start_date = end_date - timedelta(days=final_config['lookback_days'] - 1)
+
+    ticker_query = text("""
+        SELECT DISTINCT ticker FROM vcsc_daily_data_complete
+        WHERE trading_date BETWEEN :start_date AND :end_date AND total_value > 0
+        ORDER BY ticker
+    """)
+    with engine.connect() as conn:
+        all_tickers = pd.read_sql(ticker_query, conn, params={
+            'start_date': start_date, 'end_date': end_date
+        })['ticker'].tolist()
+
+    if not all_tickers:
+        logger.warning("No active tickers found in the lookback window.")
+        return [], {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0, 'selected_count': 0}
+
+    batch_size = 50
+    all_results = []
+    batch_query = text("""
+        SELECT
+            v.ticker,
+            COUNT(v.trading_date) AS trading_days,
+            AVG(v.total_value / 1e9) AS adtv_bn_vnd
+        FROM vcsc_daily_data_complete v
+        WHERE v.ticker IN :tickers
+          AND v.trading_date BETWEEN :start_date AND :end_date
+          AND v.total_value > 0
+        GROUP BY v.ticker
+    """)
+    for i in range(0, len(all_tickers), batch_size):
+        batch_tickers = all_tickers[i:i + batch_size]
+        with engine.connect() as conn:
+            result = conn.execute(batch_query, {
+                'tickers': tuple(batch_tickers),
+                'start_date': start_date,
+                'end_date': end_date
+            })
+            all_results.extend(result.fetchall())
+
+    if not all_results:
+        logger.warning("No liquidity data found for tickers in the period.")
+        return [], {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0, 'selected_count': 0}
+
+    df = pd.DataFrame(all_results, columns=['ticker', 'trading_days', 'adtv_bn_vnd'])
+    min_trading_days = int(final_config['lookback_days'] * final_config['min_trading_coverage'])
+    candidates = len(df)
+    mask_trading = df['trading_days'] >= min_trading_days
+    fail_trading_days = int((~mask_trading).sum())
+    df_after_trading = df[mask_trading]
+    mask_adtv = df_after_trading['adtv_bn_vnd'] >= final_config['adtv_threshold_bn']
+    fail_adtv = int((~mask_adtv).sum())
+    filtered_df = df_after_trading[mask_adtv]
+    universe_df = filtered_df.sort_values('adtv_bn_vnd', ascending=False).head(final_config['top_n'])
+    tickers = universe_df['ticker'].tolist()
+    counts = {
+        'candidates': int(candidates),
+        'fail_trading_days': int(fail_trading_days),
+        'fail_adtv': int(fail_adtv),
+        'selected_count': int(len(tickers)),
+    }
+    return tickers, counts
+
 def get_quarterly_universe_dates(year: int) -> Dict[str, pd.Timestamp]:
     """
     Get standard quarterly universe refresh dates for a given year.

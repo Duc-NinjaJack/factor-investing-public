@@ -531,6 +531,33 @@ class QVMEngineV201Flat:
         try:
             # Get sector counts and determine methodology
             sector_counts = data.groupby(sector_column)[metric_column].count()
+            # Persist diagnostics and emit one-line summary
+            try:
+                from production.utils.diagnostics import persist_sector_sizes_row, NormalizationFallbackTracker
+            except Exception:
+                persist_sector_sizes_row = None
+                NormalizationFallbackTracker = None
+            try:
+                universe_size = int(data['ticker'].nunique()) if 'ticker' in data.columns else int(len(data))
+            except Exception:
+                universe_size = int(len(data))
+            if persist_sector_sizes_row is not None:
+                try:
+                    # Attempt to infer current date from data if available
+                    inferred_date = None
+                    try:
+                        if 'date' in data.columns:
+                            inferred_date = pd.to_datetime(data['date'].iloc[0])
+                    except Exception:
+                        inferred_date = None
+                    persist_sector_sizes_row(
+                        inferred_date or pd.to_datetime('today').normalize(),
+                        sector_counts,
+                        universe_size,
+                        logger=self.logger,
+                    )
+                except Exception:
+                    pass
             
             # Configurable threshold: default to 10 if not provided by runner/engine
             min_sector_size = getattr(self, 'min_sector_size', 10)
@@ -574,8 +601,24 @@ class QVMEngineV201Flat:
                 
             else:
                 # FALLBACK: Cross-sectional normalization (only for very small universes)
-                self.logger.warning("Using FALLBACK cross-sectional normalization due to insufficient sector sizes")
-                self.logger.warning("This is not ideal - consider expanding universe for proper sector-neutral analysis")
+                # Demote to DEBUG by default; escalate to WARN if sustained high fraction of small sectors
+                small_fraction = float((sector_counts < min_sector_size).mean()) if len(sector_counts) > 0 else 1.0
+                msg = (
+                    f"Using FALLBACK cross-sectional normalization (small_sectors_frac={small_fraction:.2f}, "
+                    f"min_sector_size={min_sector_size})"
+                )
+                try:
+                    # Tracker is typically attached by runner; fall back to module-level singleton
+                    tracker = getattr(self, '_norm_fallback_tracker', None)
+                    if tracker is None and NormalizationFallbackTracker is not None:
+                        tracker = NormalizationFallbackTracker()
+                        setattr(self, '_norm_fallback_tracker', tracker)
+                except Exception:
+                    tracker = None
+                if tracker is not None and tracker.update_and_should_warn(small_fraction):
+                    self.logger.warning(msg)
+                else:
+                    self.logger.debug(msg)
                 
                 values = data[metric_column].dropna()
                 if len(values) > 1:

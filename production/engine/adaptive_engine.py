@@ -188,7 +188,10 @@ class PortfolioEngine_v2_0:
     def _calculate_daily_exposure(self, today: pd.Timestamp, gross_return_today: float, equity_curve: pd.Series) -> float:
         overlay_cfg = self.config['risk_overlay']
         temp_equity_curve = pd.concat([equity_curve, pd.Series({today: equity_curve.iloc[-1] * (1 + gross_return_today)})])
-        recent_returns = temp_equity_curve.pct_change().dropna()
+        try:
+            recent_returns = temp_equity_curve.pct_change(fill_method=None).dropna()
+        except TypeError:
+            recent_returns = temp_equity_curve.pct_change().dropna()
         if len(recent_returns) < 63: vol_exposure = 1.0
         else:
             realized_vol = recent_returns.tail(63).std() * np.sqrt(252)

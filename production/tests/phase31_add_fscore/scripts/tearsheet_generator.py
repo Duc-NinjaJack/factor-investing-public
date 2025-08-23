@@ -449,8 +449,8 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     # 4. Annual Returns
     ax4 = fig.add_subplot(gs[3, 0])
     # Use pandas year-end alias 'A' instead of deprecated/invalid 'YE'
-    strat_annual = aligned_strategy_returns.resample('A').apply(lambda x: (1+x).prod()-1) * 100
-    bench_annual = aligned_benchmark_returns.resample('A').apply(lambda x: (1+x).prod()-1) * 100
+    strat_annual = aligned_strategy_returns.resample('YE').apply(lambda x: (1+x).prod()-1) * 100
+    bench_annual = aligned_benchmark_returns.resample('YE').apply(lambda x: (1+x).prod()-1) * 100
     pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax4, color=['#16A085', '#34495E'])
     ax4.set_xticks(range(len(strat_annual)))
     ax4.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')

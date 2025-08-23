@@ -1,0 +1,33 @@
+name: CI - Nightly Smoke Backtest
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Run nightly smoke
+        env:
+          PYTHONUNBUFFERED: "1"
+          DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          if [ -z "${DB_URL:-}" ]; then
+            echo "DB unavailable. Running unit tests only.";
+            bash scripts/ci/run_tests.sh | cat;
+          else
+            echo "DB available. Running smoke backtest.";
+            python production/tests/phase31_add_fscore/08_QVM_v221_flat_vectorized_strategy.py --window 2020-01-01:2020-06-30 | cat;
+          fi
+
+

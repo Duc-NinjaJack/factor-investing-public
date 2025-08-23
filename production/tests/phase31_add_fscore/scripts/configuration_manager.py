@@ -186,6 +186,16 @@ def merge_backtest_with_strategy_config(backtest_config: Dict) -> Dict:
     if 'portfolio' in backtest_config:
         backtest_config['portfolio']['rebalance_frequency'] = 'M'
         print("✅ Rebalancing frequency set to monthly")
+
+    # Ensure transaction costs are explicitly present
+    if 'transaction_cost_bps' not in backtest_config:
+        backtest_config['transaction_cost_bps'] = 10
+        print("✅ transaction_cost_bps set to explicit default 10 bps")
+
+    # Anchor policy default if missing
+    if 'rebalance_anchor_policy' not in backtest_config:
+        backtest_config['rebalance_anchor_policy'] = 'nearest:3d'
+        print("✅ rebalance_anchor_policy set to nearest:3d")
     
     print("✅ Backtest configuration merged successfully")
     return backtest_config

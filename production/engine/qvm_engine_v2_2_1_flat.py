@@ -1456,7 +1456,7 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             prices = prices.sort_values(['ticker', 'trading_date'])
 
             # Vectorized daily returns per ticker
-            prices['ret'] = prices.groupby('ticker')['close_price'].pct_change()
+            prices['ret'] = prices.groupby('ticker')['close_price'].pct_change(fill_method=None)
             # Compute per-ticker daily volatility then annualize
             vol = prices.dropna(subset=['ret']).groupby('ticker')['ret'].std()
             if vol.empty:

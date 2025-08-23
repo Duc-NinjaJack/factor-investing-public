@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import concurrent.futures
 from multiprocessing import cpu_count
 from pathlib import Path
@@ -121,6 +122,37 @@ def _setup_logger() -> logging.Logger:
     return logger
 
 
+def _set_deterministic_env(logger: logging.Logger, seed: int = 42) -> None:
+    """Set environment for deterministic execution and seed global RNGs.
+
+    - Force BLAS single-threading to avoid nondeterministic reductions
+    - Seed numpy and Python RNGs
+    - Prefer float64 everywhere
+    """
+    try:
+        # BLAS/OMP single-threading inside the runner
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+        # Global RNG seeds
+        try:
+            np.random.seed(int(seed))
+        except Exception:
+            pass
+        try:
+            random.seed(int(seed))
+        except Exception:
+            pass
+        # Prefer float64
+        try:
+            np.set_printoptions(precision=12, floatmode='maxprec', suppress=False)
+        except Exception:
+            pass
+        logger.info("Deterministic env set: MKL/OMP threads=1, seeds initialized")
+    except Exception as _e:
+        logger.debug(f"Deterministic env setup skipped: {_e}")
+
+
 def _hash_config(cfg: Dict) -> str:
     norm = json.dumps(cfg, sort_keys=True).encode("utf-8")
     return hashlib.sha256(norm).hexdigest()[:12]
@@ -131,11 +163,18 @@ def _ensure_dir(path: Path) -> None:
 
 
 def _select_top_n_holdings(scores: Dict[str, Dict[str, float]], n: int) -> List[str]:
+    """Select top-N tickers with stable tie-break on ticker ascending.
+
+    Uses mergesort for stability to guarantee deterministic ordering when
+    `QVM_Composite` ties occur.
+    """
     df = pd.DataFrame.from_dict(scores, orient="index")
     if df.empty or "QVM_Composite" not in df.columns:
         return []
-    ranked = df.sort_values("QVM_Composite", ascending=False)
-    return ranked.index.tolist()[:n]
+    df = df.copy()
+    df["ticker"] = df.index.astype(str)
+    ranked = df.sort_values(by=["QVM_Composite", "ticker"], ascending=[False, True], kind="mergesort")
+    return ranked["ticker"].tolist()[:n]
 
 
 def _parse_active_window(backtest_cfg: Dict) -> Tuple[pd.Timestamp, pd.Timestamp]:
@@ -293,7 +332,12 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
 
     # Universe
     t_u0 = _time.perf_counter()
-    univ = _get_univ(reb_date, _db_engine)
+    try:
+        from production.universe.constructors import get_liquid_universe_and_counts as _get_univ_counts
+        univ, u_counts = _get_univ_counts(reb_date, _db_engine)
+    except Exception:
+        univ = _get_univ(reb_date, _db_engine)
+        u_counts = {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0, 'selected_count': int(len(univ) or 0)}
     elapsed_universe_ms = (_time.perf_counter() - t_u0) * 1000.0
     if not univ:
         return {
@@ -306,12 +350,14 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
             "factor_coverage_rate": 0.0,
             "sql_queries": db_counters["queries"] + eng_counters["queries"],
             "sql_rows": db_counters["rows"] + eng_counters["rows"],
+            **u_counts,
         }
 
     # Factors
     t_f0 = _time.perf_counter()
     scores = _engine.calculate_qvm_composite_fixed(reb_date, univ)
     elapsed_factors_ms = (_time.perf_counter() - t_f0) * 1000.0
+    _et = getattr(_engine, '_last_timings', {}) or {}
     if not scores:
         return {
             "date": pd.Timestamp(reb_date),
@@ -320,9 +366,16 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
             "holdings": [],
             "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
             "elapsed_ms_factors": round(float(elapsed_factors_ms), 3),
+            "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+            "elapsed_ms_value": _et.get("elapsed_ms_value"),
+            "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+            "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+            "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+            "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
             "factor_coverage_rate": 0.0,
             "sql_queries": db_counters["queries"] + eng_counters["queries"],
             "sql_rows": db_counters["rows"] + eng_counters["rows"],
+            **u_counts,
         }
 
     coverage = _compute_factor_coverage(scores)
@@ -334,17 +387,26 @@ def _worker_process(reb_date: pd.Timestamp, strategy_cfg_local: Dict, backtest_c
         "holdings": holdings or [],
         "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
         "elapsed_ms_factors": round(float(elapsed_factors_ms), 3),
+        "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+        "elapsed_ms_value": _et.get("elapsed_ms_value"),
+        "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+        "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+        "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+        "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
         "factor_coverage_rate": round(float(coverage), 4),
         "sql_queries": db_counters["queries"] + eng_counters["queries"],
         "sql_rows": db_counters["rows"] + eng_counters["rows"],
+        **u_counts,
     }
 
 def main():
     logger = _setup_logger()
+    _set_deterministic_env(logger, seed=int(os.environ.get("QVM_SEED", "42")))
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=False, default=None)
     parser.add_argument("--window", type=str, required=False, help="YYYY-MM-DD:YYYY-MM-DD override")
     parser.add_argument("--jobs", type=int, required=False, help="Parallel workers for monthly dates")
+    parser.add_argument("--force-parallel", action="store_true", help="Enable ProcessPoolExecutor parallel path (unsafe) for baseline testing")
     args = parser.parse_args()
 
     # Phase 1: Config + validation
@@ -364,8 +426,18 @@ def main():
         backtest_cfg["active_window"] = {"start": start_s, "end": end_s}
 
     run_id = _hash_config({"strategy": strategy_cfg, "backtest": backtest_cfg})
-    artifacts_dir = Path("artifacts/qvm_v221_flat_vectorized") / run_id
+    # Time-prefixed run directory plus 'latest' symlink for discoverability
+    from datetime import datetime as _dt
+    ts_prefix = _dt.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    artifacts_dir = Path("artifacts/qvm_v221_flat_vectorized") / f"{ts_prefix}@{run_id}"
     _ensure_dir(artifacts_dir)
+    try:
+        latest_link = artifacts_dir.parent / 'latest'
+        if latest_link.is_symlink() or latest_link.exists():
+            latest_link.unlink()
+        latest_link.symlink_to(artifacts_dir.name)
+    except Exception as _e:
+        logger.debug(f"Could not update latest symlink: {_e}")
     # Persist config snapshot for lineage
     with open(artifacts_dir / 'strategy_config.json', 'w', encoding='utf-8') as f:
         json.dump(strategy_cfg, f, indent=2, sort_keys=True)
@@ -388,6 +460,8 @@ def main():
     start_date, end_date = _parse_active_window(backtest_cfg)
 
     # Phase 2-3: Universe, factors, holdings per monthly rebalance date
+    import time as _time
+    _run_t0 = _time.perf_counter()
     engine = QVMEngineV221Flat()
     # Wire normalization control from config if present
     try:
@@ -457,7 +531,9 @@ def main():
         close = df2.set_index("date")["close_price"].sort_index()
         return close, close.pct_change().dropna()
 
+    t_b0 = _time.perf_counter()
     benchmark_prices, benchmark_returns = _load_benchmark_series(db_engine, start_date, end_date)
+    elapsed_ms_benchmark = (_time.perf_counter() - t_b0) * 1000.0
     if benchmark_prices.empty:
         # System hardening: counter + diagnostics
         logger.error("Missing benchmark series; aborting run")
@@ -473,6 +549,7 @@ def main():
     )
 
     diag_rows = []
+    universe_diag_rows = []
     empty_universe_count = 0
     empty_scores_count = 0
     empty_holdings_count = 0
@@ -482,7 +559,8 @@ def main():
     # Parallel or sequential execution
     jobs = int(args.jobs) if getattr(args, 'jobs', None) is not None else max(1, min(4, (cpu_count() or 1)))
     results: List[Dict] = []
-    if jobs <= 1:
+    timings_rows: List[Dict] = []
+    if jobs <= 1 or not getattr(args, 'force_parallel', False):
         import time
         # Install SQL counters on shared runner DB and engine DB
         db_counters = _install_sql_counters(db_engine)
@@ -505,10 +583,16 @@ def main():
             eng_q0, eng_r0 = eng_counters["queries"], eng_counters["rows"]
 
             # Universe selection from DB
-            from production.universe.constructors import get_liquid_universe
+            from production.universe.constructors import get_liquid_universe_and_counts
             t_u0 = time.perf_counter()
-            universe = get_liquid_universe(reb_date, db_engine)
+            universe, u_counts = get_liquid_universe_and_counts(reb_date, db_engine)
             elapsed_universe_ms = (time.perf_counter() - t_u0) * 1000.0
+            # Seed universe diagnostics row (selected_count populated after holdings selection below)
+            universe_diag_rows.append({
+                'date': pd.Timestamp(reb_date),
+                **u_counts,
+                'selected_count': None,
+            })
             if not universe:
                 logger.warning(f"Empty universe on {reb_date.date()} - skipping")
                 diag_rows.append({
@@ -521,12 +605,26 @@ def main():
                     "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
                 })
                 empty_universe_count += 1
+                timings_rows.append({
+                    "date": pd.Timestamp(reb_date),
+                    "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                    "elapsed_ms_factors": None,
+                    "elapsed_ms_quality": None,
+                    "elapsed_ms_value": None,
+                    "elapsed_ms_momentum": None,
+                    "elapsed_ms_lowvol": None,
+                    "elapsed_ms_fscore": None,
+                    "elapsed_ms_fcf": None,
+                    "sql_queries": (db_counters["queries"] + eng_counters["queries"]) - (db_q0 + eng_q0),
+                    "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
+                })
                 continue
 
             # Engine factor computation and composite with timing telemetry
             t0 = time.perf_counter()
             scores = engine.calculate_qvm_composite_fixed(reb_date, universe)
             elapsed_ms_vec = (time.perf_counter() - t0) * 1000.0
+            _et = getattr(engine, '_last_timings', {}) or {}
 
             # Optional micro-benchmark: compare non-vectorized path on first date only
             elapsed_ms_nonvec = None
@@ -557,6 +655,19 @@ def main():
                     "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
                 })
                 empty_scores_count += 1
+                timings_rows.append({
+                    "date": pd.Timestamp(reb_date),
+                    "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                    "elapsed_ms_factors": _et.get("elapsed_ms_factors", round(float(elapsed_ms_vec), 3)),
+                    "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+                    "elapsed_ms_value": _et.get("elapsed_ms_value"),
+                    "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+                    "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+                    "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+                    "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
+                    "sql_queries": (db_counters["queries"] + eng_counters["queries"]) - (db_q0 + eng_q0),
+                    "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
+                })
                 continue
 
             # Factor coverage before selection
@@ -576,8 +687,31 @@ def main():
                     "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
                 })
                 empty_holdings_count += 1
+                # Update corresponding universe diagnostics selected_count to 0
+                try:
+                    universe_diag_rows[-1]['selected_count'] = 0
+                except Exception:
+                    pass
+                timings_rows.append({
+                    "date": pd.Timestamp(reb_date),
+                    "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                    "elapsed_ms_factors": _et.get("elapsed_ms_factors", round(float(elapsed_ms_vec), 3)),
+                    "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+                    "elapsed_ms_value": _et.get("elapsed_ms_value"),
+                    "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+                    "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+                    "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+                    "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
+                    "sql_queries": (db_counters["queries"] + eng_counters["queries"]) - (db_q0 + eng_q0),
+                    "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
+                })
                 continue
             all_holdings[reb_date] = holdings
+            # Update selected_count for universe diagnostics
+            try:
+                universe_diag_rows[-1]['selected_count'] = len(holdings)
+            except Exception:
+                pass
             # Turnover vs previous holdings
             current_set = set(holdings)
             overlap = len(prev_holdings_set.intersection(current_set)) if prev_holdings_set else 0
@@ -596,18 +730,63 @@ def main():
                 "sql_queries": (db_counters["queries"] + eng_counters["queries"]) - (db_q0 + eng_q0),
                 "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
             })
+            timings_rows.append({
+                "date": pd.Timestamp(reb_date),
+                "elapsed_ms_universe": round(float(elapsed_universe_ms), 3),
+                "elapsed_ms_factors": _et.get("elapsed_ms_factors", round(float(elapsed_ms_vec), 3)),
+                "elapsed_ms_quality": _et.get("elapsed_ms_quality"),
+                "elapsed_ms_value": _et.get("elapsed_ms_value"),
+                "elapsed_ms_momentum": _et.get("elapsed_ms_momentum"),
+                "elapsed_ms_lowvol": _et.get("elapsed_ms_lowvol"),
+                "elapsed_ms_fscore": _et.get("elapsed_ms_fscore"),
+                "elapsed_ms_fcf": _et.get("elapsed_ms_fcf"),
+                "sql_queries": (db_counters["queries"] + eng_counters["queries"]) - (db_q0 + eng_q0),
+                "sql_rows": (db_counters["rows"] + eng_counters["rows"]) - (db_r0 + eng_r0),
+            })
     else:
-        # Parallel path disabled for stability due to DB driver sync issues
-        logger.info("Parallel execution disabled; running sequentially for stability")
-        for d in monthly_dates:
-            res = _worker_process(d, strategy_cfg, backtest_cfg, portfolio_size)
-            results.append(res)
-        # Merge results in date order
+        logger.info(f"Parallel execution enabled with jobs={jobs} (unsafe mode)")
+        try:
+            # Warm-up length L can reduce cross-date dependencies per worker
+            warmup_months = 3
+            try:
+                warmup_months = int(backtest_cfg.get('parallel', {}).get('warmup_months', warmup_months))
+            except Exception:
+                pass
+            with concurrent.futures.ProcessPoolExecutor(max_workers=jobs) as ex:
+                futs = [
+                    ex.submit(_worker_process, d, strategy_cfg, backtest_cfg, portfolio_size)
+                    for d in monthly_dates
+                ]
+                for fut in concurrent.futures.as_completed(futs):
+                    try:
+                        results.append(fut.result())
+                    except Exception as _e:
+                        logger.error(f"Worker failed: {_e}")
+        except Exception as _e:
+            logger.warning(f"Parallel path failed, falling back to sequential workers: {_e}")
+            for d in monthly_dates:
+                res = _worker_process(d, strategy_cfg, backtest_cfg, portfolio_size)
+                results.append(res)
+
+        # Merge results in date order and build diagnostics
         results.sort(key=lambda r: r["date"]) 
         prev_holdings_set: set = set()
         for res in results:
             d = pd.Timestamp(res["date"])  # ensure Timestamp
             holdings = res.get("holdings") or []
+            try:
+                u_counts = {
+                    'candidates': int(res.get('candidates', 0)),
+                    'fail_trading_days': int(res.get('fail_trading_days', 0)),
+                    'fail_adtv': int(res.get('fail_adtv', 0)),
+                }
+            except Exception:
+                u_counts = {'candidates': 0, 'fail_trading_days': 0, 'fail_adtv': 0}
+            universe_diag_rows.append({
+                'date': d,
+                **u_counts,
+                'selected_count': int(len(holdings)),
+            })
             if not holdings:
                 if res.get("universe_size", 0) == 0:
                     empty_universe_count += 1
@@ -617,7 +796,6 @@ def main():
                     empty_holdings_count += 1
             else:
                 all_holdings[d] = holdings
-            # Turnover computed after ordering
             current_set = set(holdings)
             overlap = len(prev_holdings_set.intersection(current_set)) if prev_holdings_set and current_set else 0
             turnover = 1.0 - (overlap / float(len(current_set))) if current_set else 0.0
@@ -631,6 +809,19 @@ def main():
                 "elapsed_ms_factors": res.get("elapsed_ms_factors"),
                 "turnover": round(float(turnover), 4),
                 "factor_coverage_rate": res.get("factor_coverage_rate"),
+                "sql_queries": int(res.get("sql_queries", 0)),
+                "sql_rows": int(res.get("sql_rows", 0)),
+            })
+            timings_rows.append({
+                "date": d,
+                "elapsed_ms_universe": res.get("elapsed_ms_universe"),
+                "elapsed_ms_factors": res.get("elapsed_ms_factors"),
+                "elapsed_ms_quality": res.get("elapsed_ms_quality"),
+                "elapsed_ms_value": res.get("elapsed_ms_value"),
+                "elapsed_ms_momentum": res.get("elapsed_ms_momentum"),
+                "elapsed_ms_lowvol": res.get("elapsed_ms_lowvol"),
+                "elapsed_ms_fscore": res.get("elapsed_ms_fscore"),
+                "elapsed_ms_fcf": res.get("elapsed_ms_fcf"),
                 "sql_queries": int(res.get("sql_queries", 0)),
                 "sql_rows": int(res.get("sql_rows", 0)),
             })
@@ -670,12 +861,29 @@ def main():
     
     all_holdings = {d: all_holdings[d] for d in cal}
 
-    # Save holdings artifact (calendar-aligned)
+    # Save holdings artifact (calendar-aligned) - deterministically sorted
     h_rows = []
     for d, lst in all_holdings.items():
-        for t in lst:
+        # Enforce deterministic ticker ordering within a date as a stable tiebreaker
+        for t in sorted(lst):
             h_rows.append({"date": pd.Timestamp(d), "ticker": t})
-    pd.DataFrame(h_rows).to_csv(artifacts_dir / 'monthly_holdings.csv', index=False)
+    holdings_df = pd.DataFrame(h_rows)
+    if not holdings_df.empty:
+        holdings_df = holdings_df.sort_values(["date", "ticker"], kind="mergesort").reset_index(drop=True)
+    holdings_df.to_csv(artifacts_dir / 'monthly_holdings.csv', index=False)
+
+    # Emit per-date portfolio hash file for golden-window comparisons
+    try:
+        from hashlib import sha256 as _sha256
+        lines = []
+        for d, group in holdings_df.groupby('date', sort=True):
+            tickers = list(group['ticker'].astype(str))
+            payload = (str(pd.Timestamp(d).date()) + '|' + ','.join(tickers)).encode('utf-8')
+            h = _sha256(payload).hexdigest()
+            lines.append(f"{pd.Timestamp(d).date()},{h}")
+        (artifacts_dir / 'portfolio_hashes.txt').write_text('\n'.join(lines) + ('\n' if lines else ''), encoding='utf-8')
+    except Exception as _e:
+        logger.warning(f"Failed writing per-date portfolio hashes: {_e}")
 
     # Save diagnostics (including counters and feature flags)
     if diag_rows:
@@ -685,7 +893,33 @@ def main():
         diag_df['empty_holdings_count'] = empty_holdings_count
         # Feature flag telemetry
         diag_df['use_vectorized_fscore_221'] = bool(strategy_cfg.get("f_score", {}).get("use_vectorized_fscore_221", True))
+        # Add benchmark loader latency to each per-date row
+        diag_df['elapsed_ms_benchmark'] = round(float(elapsed_ms_benchmark), 3)
         diag_df.to_csv(artifacts_dir / 'diagnostics.csv', index=False)
+    # Save timings CSV ordered by date
+    if timings_rows:
+        timings_df = pd.DataFrame(timings_rows)
+        timings_df = timings_df.sort_values('date')
+        # Ensure required schema columns exist even if None
+        for col in [
+            'elapsed_ms_universe','elapsed_ms_factors','elapsed_ms_quality','elapsed_ms_value',
+            'elapsed_ms_momentum','elapsed_ms_lowvol','elapsed_ms_fscore','elapsed_ms_fcf',
+            'sql_queries','sql_rows']:
+            if col not in timings_df.columns:
+                timings_df[col] = None
+        timings_df.to_csv(artifacts_dir / 'timings.csv', index=False)
+
+    # Persist universe diagnostics always if available
+    try:
+        if universe_diag_rows:
+            u_df = pd.DataFrame(universe_diag_rows)
+            # Backfill selected_count where not set (e.g., score failure path)
+            if 'selected_count' in u_df.columns:
+                u_df['selected_count'] = u_df['selected_count'].fillna(0).astype(int)
+            u_df = u_df[['date','candidates','fail_trading_days','fail_adtv','selected_count']]
+            u_df.to_csv(artifacts_dir / 'universe_diagnostics.csv', index=False)
+    except Exception as _e:
+        logger.warning(f"Failed writing universe_diagnostics.csv: {_e}")
 
     # Phase 5: Daily PnL with and without risk overlay
     # Slippage model (basis points) optional
@@ -811,13 +1045,28 @@ def main():
     with open(artifacts_dir / 'environment_manifest.json', 'w', encoding='utf-8') as f:
         json.dump(env_manifest, f, indent=2, sort_keys=True)
 
+    # Run info for baseline comparisons
+    try:
+        run_info = {
+            "jobs": int(jobs),
+            "force_parallel": bool(getattr(args, 'force_parallel', False)),
+            "num_rebalance_dates": int(len(all_holdings)),
+            "wall_clock_ms": round(float((_time.perf_counter() - _run_t0) * 1000.0), 3),
+        }
+        with open(artifacts_dir / 'run_info.json', 'w', encoding='utf-8') as f:
+            json.dump(run_info, f, indent=2, sort_keys=True)
+    except Exception:
+        pass
+
     # Integrity manifest
     try:
         import hashlib
         manifest = {}
         for fname in [
             'strategy_config.json','backtest_config.json','monthly_holdings.csv','diagnostics.csv',
-            'no_risk_returns.csv','with_risk_returns.csv','with_risk_cash.csv','benchmark_returns.csv'
+            'timings.csv','universe_diagnostics.csv','portfolio_hashes.txt',
+            'no_risk_returns.csv','with_risk_returns.csv','with_risk_cash.csv','benchmark_returns.csv',
+            'environment_manifest.json','run_info.json'
         ]:
             fpath = artifacts_dir / fname
             if fpath.exists():

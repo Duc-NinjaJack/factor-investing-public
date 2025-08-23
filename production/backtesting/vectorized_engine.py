@@ -54,18 +54,41 @@ class VectorizedEngine:
             logger.error("No factor data or returns matrix provided")
             return pd.Series(), pd.DataFrame()
         
-        # Get rebalancing dates (monthly)
+        # Get rebalancing dates (monthly) with CalendarService anchor policy
         start_date = pd.to_datetime(self.config.get('backtest_start_date', '2018-01-01'))
         end_date = pd.to_datetime(self.config.get('backtest_end_date', '2025-07-31'))
-        
+
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
-            rebalance_dates = pd.date_range(start=start_date, end=end_date, freq='M')
-        
-        # Filter rebalance dates to only include those with data
-        available_dates = self.factor_data['date'].unique()
-        rebalance_dates = [d for d in rebalance_dates if d in available_dates]
+            target_month_starts = pd.date_range(start=start_date, end=end_date, freq='MS')
+
+        # Build calendars from provided data
+        price_index = pd.DatetimeIndex(sorted(pd.to_datetime(self.returns_matrix['date'].unique()))) if self.returns_matrix is not None and 'date' in self.returns_matrix.columns else pd.DatetimeIndex([])
+        holdings_index = pd.DatetimeIndex(sorted(pd.to_datetime(self.factor_data['date'].unique()))) if self.factor_data is not None and 'date' in self.factor_data.columns else pd.DatetimeIndex([])
+
+        try:
+            from production.utils.calendar_service import CalendarService
+            cal = CalendarService.from_price_series(price_index, holdings_index, logger=logger)
+            policy = self.config.get('rebalance_anchor_policy', 'nearest:3d')
+            anchors = []
+            for d in target_month_starts:
+                anchor_type, anchor_date, delta = cal.choose_anchor(d, policy)
+                anchors.append({'target': d, 'anchor': anchor_date, 'anchor_type': anchor_type, 'delta_days': delta})
+            anchors_df = pd.DataFrame(anchors)
+            # Deduplicate anchors and ensure they exist in factor data
+            rebalance_dates = [pd.to_datetime(a) for a in anchors_df['anchor'].unique()]
+            available_dates = set(pd.to_datetime(self.factor_data['date'].unique()))
+            rebalance_dates = [d for d in rebalance_dates if d in available_dates]
+            # Persist in results for metadata
+            self.results['calendar_anchors'] = anchors_df
+        except Exception as e:
+            logger.debug(f"CalendarService not available or failed ({e}); falling back to factor-data month ends")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)
+                fallback = pd.date_range(start=start_date, end=end_date, freq='M')
+            available_dates = set(pd.to_datetime(self.factor_data['date'].unique()))
+            rebalance_dates = [d for d in fallback if d in available_dates]
         
         if not rebalance_dates:
             logger.error("No valid rebalancing dates found")

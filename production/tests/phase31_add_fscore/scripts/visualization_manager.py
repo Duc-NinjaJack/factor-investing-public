@@ -319,8 +319,8 @@ def create_performance_summary_chart(strategy_returns: pd.Series, benchmark_retu
             ax3.set_title('Cash Allocation Over Time', fontweight='bold')
         
         # 4. Monthly Returns Comparison
-        monthly_strategy = strategy_returns.resample('M').apply(lambda x: (1 + x).prod() - 1)
-        monthly_benchmark = benchmark_returns.resample('M').apply(lambda x: (1 + x).prod() - 1)
+        monthly_strategy = strategy_returns.resample('ME').apply(lambda x: (1 + x).prod() - 1)
+        monthly_benchmark = benchmark_returns.resample('ME').apply(lambda x: (1 + x).prod() - 1)
         
         x = range(len(monthly_strategy))
         width = 0.35

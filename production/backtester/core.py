@@ -111,7 +111,17 @@ def run_daily_pnl(
         raise ValueError("No rebalance dates provided")
 
     prices = daily_prices.sort_index()
-    daily_returns = prices.pct_change().fillna(0.0)
+    if logger is not None:
+        try:
+            logger.info(
+                "Cost model: transaction_cost_bps=%.1f | slippage_bps=%.1f",
+                float(backtest_config.transaction_cost_bps),
+                float(backtest_config.slippage_bps),
+            )
+        except Exception:
+            pass
+    # Explicitly disable implicit reindex fill to avoid deprecation warnings
+    daily_returns = prices.pct_change(fill_method=None).fillna(0.0)
 
     dates = prices.index
     start_idx = dates.get_indexer([monthly_rebalance_dates[0]], method="nearest")[0]
