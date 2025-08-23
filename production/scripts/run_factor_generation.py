@@ -44,6 +44,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore', category=pd.errors.PerformanceWarning)
 
+# Parallel safety: enforce spawn and disable DB in children; provide prematerialization hint when fan-out
+try:
+    from production.utils.parallel import ensure_spawn_start_method, disable_db_access_in_children
+    ensure_spawn_start_method(logger)
+    disable_db_access_in_children(logger=logger)
+    logger.info("Parallel safety enabled: spawn start; DB disabled in children. For high fan-out, prematerialize to Parquet.")
+except Exception:
+    pass
+
 def import_enhanced_engine(strategy_version='qvm_v2.1.1_flat'):
     """Import the QVM Engine v2.1.1 Flat from production location."""
     try:
@@ -51,17 +60,19 @@ def import_enhanced_engine(strategy_version='qvm_v2.1.1_flat'):
         production_path = Path(__file__).parent.parent
         sys.path.append(str(production_path))
         
+        import importlib
         # Check if hotfix version is requested
         if 'hotfix' in strategy_version:
-            # Import HOTFIX F-Score engine that bypasses SQL CTE performance issues
-            from engine.qvm_engine_v2_1_1_flat_hotfix import QVMEngineV211Flat
+            # Dynamically import HOTFIX F-Score engine
+            module = importlib.import_module('engine.qvm_engine_v2_1_1_flat_hotfix')
+            cls = getattr(module, 'QVMEngineV211Flat')
             logger.info("✅ Successfully imported QVM Engine v2.1.1 Flat HOTFIX (F-Score optimized)")
         else:
-            # Import standard QVM Engine v2.1.1 Flat
-            from engine.qvm_engine_v2_1_1_flat import QVMEngineV211Flat
+            # Dynamically import standard QVM Engine v2.1.1 Flat
+            module = importlib.import_module('engine.qvm_engine_v2_1_1_flat')
+            cls = getattr(module, 'QVMEngineV211Flat')
             logger.info("✅ Successfully imported QVM Engine v2.1.1 Flat")
-        
-        return QVMEngineV211Flat
+        return cls
         
     except Exception as e:
         logger.error(f"❌ Failed to import QVM Engine v2.1.1 Flat: {e}")

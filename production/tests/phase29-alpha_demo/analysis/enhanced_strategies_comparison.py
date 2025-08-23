@@ -388,7 +388,7 @@ class EnhancedStrategiesComparison:
         
         # Set up plotting style
         plt.style.use('seaborn-v0_8')
-        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
         fig.suptitle('Enhanced Strategies Performance Comparison', fontsize=16, fontweight='bold')
         
         # 1. Sharpe Ratio Comparison
@@ -472,8 +472,7 @@ class EnhancedStrategiesComparison:
             ax4.text(bar.get_x() + bar.get_width()/2., height + (1 if value > 0 else -1),
                      f'{value:+.1f}%', ha='center', va='bottom' if value > 0 else 'top', fontweight='bold')
         
-        plt.tight_layout()
-        plt.savefig('insights/enhanced_strategies_comparison.png', dpi=300, bbox_inches='tight')
+        plt.savefig('insights/enhanced_strategies_comparison.png', dpi=300)
         plt.show()
         
         print("✅ Visualizations created and saved.")

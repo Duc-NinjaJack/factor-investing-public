@@ -11,6 +11,7 @@ import sys
 try:
     from production.utils.parallel import ensure_spawn_start_method, disable_db_access_in_children
     ensure_spawn_start_method()
+    disable_db_access_in_children()
 except Exception:
     pass
 
@@ -116,7 +117,7 @@ class PortfolioEngine_v2_0:
         self.benchmark_returns = benchmark_returns.loc[start:end].copy()
         self._universe_cache = universe_cache if universe_cache is not None else {}
 
-    def run_backtest(self, mode='iterative') -> (pd.Series, pd.DataFrame, pd.Series):
+    def run_backtest(self, mode='iterative') -> tuple[pd.Series, pd.DataFrame, pd.Series]:
         rebalance_dates = self._generate_rebalance_dates()
         if mode == 'vectorized':
             daily_holdings, _ = self._run_vectorized_loop(rebalance_dates)
@@ -125,7 +126,7 @@ class PortfolioEngine_v2_0:
         else:
             return self._run_daily_iterative_loop(rebalance_dates)
 
-    def _run_vectorized_loop(self, rebalance_dates: list) -> (pd.DataFrame, pd.DataFrame):
+    def _run_vectorized_loop(self, rebalance_dates: list) -> tuple[pd.DataFrame, pd.DataFrame]:
         daily_holdings = pd.DataFrame(0.0, index=self.daily_returns_matrix.index, columns=self.daily_returns_matrix.columns)
         for i, rebal_date in enumerate(rebalance_dates):
             target_portfolio = self._get_target_for_date(rebal_date)

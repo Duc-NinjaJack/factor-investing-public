@@ -39,6 +39,11 @@ backtest:
     reporting_lag_days: 75
   portfolio:
     rebalance_frequency: "M"
+  selection:
+    enable_constraints: false
+  risk_overlay:
+    mode: drawdown_based  # options: drawdown_based, vol_targeting
+    volatility_target: 0.11
   transaction_cost_bps: 10
   slippage_bps: 0
   parallel:

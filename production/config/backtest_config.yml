@@ -66,10 +66,11 @@ factor_optimization:
 cost_model:
   base_cost_bps: 3             # 3 bps base cost
   impact_coefficient: 0.15     # Square root impact factor
-  max_participation_rate: 0.05 # 5% max of ADTV
+  max_participation_rate: 0.07 # Temporarily relax to 7% for capacity check
   
 # === RISK OVERLAY ===
 risk_overlay:
+  mode: "vol_targeting"      # Use volatility targeting overlay for smoke run
   volatility_target: 0.10      # 10% vol target
   
   # Regime detection
@@ -87,7 +88,7 @@ portfolio:
   max_leverage: 1.5            # Maximum 1.5x for aggressive variants
   rebalance_frequency: "quarterly"  # Q, M, or custom
   concentration_limit: 0.20    # 20% max single position
-  assumed_notional_vnd: 200000000000  # Activates ADV capacity cap
+  assumed_notional_vnd: 150000000000  # Temporarily reduce notional for capacity check
 
 # === TRANSACTION COSTS ===
 transaction_cost_bps: 10       # Explicit default 10 bps unless overridden
@@ -100,7 +101,7 @@ benchmark:
 # === FUNDAMENTALS TIMING ===
 # Use fundamentals-aware rebalance anchors with reporting lag (days after quarter-end)
 fundamentals:
-  reporting_lag_days: 60
+  reporting_lag_days: null     # Disable fundamentals-aware quarter-lag anchors for smoke run
 
 # === OUTPUT & REPORTING ===
 output:
@@ -121,7 +122,12 @@ rebalance_anchor_policy: "nearest:3d"  # holdings|price|intersection|nearest:tol
 
 # === REBALANCE CONTROLS ===
 rebalance:
+  anchor: first_trading_day   # Force first-trading-day anchors for monthly coverage
   min_holding_months: 1  # Churn control
+
+# === SELECTION CONSTRAINTS ===
+selection:
+  enable_constraints: true     # Enforce sector cap and ADV capacity constraints
 
 # === PARALLEL CONTROLS ===
 parallel:

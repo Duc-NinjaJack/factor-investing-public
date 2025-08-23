@@ -488,84 +488,48 @@ class QVMEngineV2Enhanced:
                                       metric_column: str, 
                                       sector_column: str = 'sector') -> pd.Series:
         """
-        INSTITUTIONAL METHODOLOGY: Sector-neutral z-scores as PRIMARY approach.
-        
-        This implements the corrected institutional framework based on expert feedback:
-        - PRIMARY: Sector-neutral normalization (extracts pure alpha signal)
-        - FALLBACK: Cross-sectional only for very small sectors (<10 tickers)
-        
-        The key insight is that sector-neutral normalization should be the DEFAULT,
-        not a sophisticated enhancement. This separates signal generation from
-        portfolio construction as per institutional best practices.
+        Hierarchical, diagnostics-aware normalization with dynamic min-sector-size.
+        Delegates to shared utility to ensure consistent behavior across engines.
         """
         try:
-            # Get sector counts and determine methodology
-            sector_counts = data.groupby(sector_column)[metric_column].count()
-            
-            # INSTITUTIONAL THRESHOLD: Use sector-neutral unless sector is very small
-            # This is the CORRECTED logic - sector-neutral is PRIMARY, not fallback
-            use_sector_neutral = True
-            for sector, count in sector_counts.items():
-                if count < 10:  # Institutional threshold for minimum sector size
-                    self.logger.info(f"Sector '{sector}' has only {count} tickers - may use cross-sectional fallback")
-                    # Check if this is the only sector or if we have multiple small sectors
-                    if len(sector_counts) == 1 or (sector_counts < 10).all():
-                        use_sector_neutral = False
-                        break
-            
-            if use_sector_neutral:
-                # PRIMARY METHODOLOGY: Sector-neutral normalization
-                self.logger.debug("Using PRIMARY sector-neutral normalization (institutional standard)")
-                
-                def sector_zscore(group):
-                    values = group[metric_column].dropna()
-                    if len(values) < 2:
-                        # For very small groups, return neutral scores
-                        return pd.Series(0.0, index=group.index)
-                    mean_val = values.mean()
-                    std_val = values.std()
-                    if std_val == 0:
-                        # No variation within sector - all get neutral scores
-                        return pd.Series(0.0, index=group.index)
-                    # Pure alpha extraction within sector
-                    return (group[metric_column] - mean_val) / std_val
-                
-                # Apply sector-neutral normalization
-                z_scores = data.groupby(sector_column, group_keys=False).apply(sector_zscore)
-                
-                # Ensure proper index alignment
-                if isinstance(z_scores, pd.DataFrame):
-                    z_scores = z_scores.iloc[:, 0]  # Extract series if needed
-                
-                z_scores = z_scores.reindex(data.index, fill_value=0)
-                
-            else:
-                # FALLBACK: Cross-sectional normalization (only for very small universes)
-                self.logger.warning("Using FALLBACK cross-sectional normalization due to insufficient sector sizes")
-                self.logger.warning("This is not ideal - consider expanding universe for proper sector-neutral analysis")
-                
-                values = data[metric_column].dropna()
-                if len(values) > 1:
-                    mean_val = values.mean()
-                    std_val = values.std()
-                    if std_val > 0:
-                        z_scores = (data[metric_column] - mean_val) / std_val
-                    else:
-                        z_scores = pd.Series(0.0, index=data.index)
-                else:
-                    z_scores = pd.Series(0.0, index=data.index)
-            
-            # Winsorization at 3 standard deviations (institutional standard)
-            z_scores = z_scores.clip(-3, 3)
-            
-            methodology = "sector-neutral" if use_sector_neutral else "cross-sectional"
-            self.logger.info(f"Calculated {methodology} z-scores for {len(z_scores)} observations")
-            
-            return z_scores
-            
+            try:
+                from production.utils.normalization import (
+                    NormalizationConfig,
+                    compute_hierarchical_zscores,
+                )
+            except Exception as _imp_e:
+                self.logger.error(f"Normalization utilities unavailable: {_imp_e}")
+                return pd.Series(0.0, index=data.index)
+
+            # Resolve configuration if present, else use defaults
+            cfg = None
+            try:
+                # Prefer engine-level normalization_config if present
+                if hasattr(self, 'normalization_config') and isinstance(self.normalization_config, dict):
+                    cfg = NormalizationConfig(
+                        min_sector_size=self.normalization_config.get('min_sector_size') if self.normalization_config.get('min_sector_size') != 'dynamic' else None,
+                        robust=self.normalization_config.get('robust', 'median_mad'),
+                        fallback=self.normalization_config.get('fallback', ['sector', 'industry', 'market']),
+                    )
+            except Exception:
+                cfg = None
+
+            z, info = compute_hierarchical_zscores(
+                data=data,
+                metric_column=metric_column,
+                sector_column=sector_column,
+                industry_column='industry',
+                cfg=cfg,
+                logger=self.logger,
+            )
+
+            self.logger.info(
+                "Calculated normalized z-scores | min_sector_size=%s | small_frac=%s | universe=%s",
+                info.get('min_sector_size'), info.get('small_sectors_fraction'), info.get('universe_size'),
+            )
+            return z
         except Exception as e:
-            self.logger.error(f"Error in institutional normalization: {e}")
-            # Emergency fallback - return neutral scores
+            self.logger.error(f"Error in hierarchical normalization: {e}")
             return pd.Series(0.0, index=data.index)
     
     def get_fundamentals_correct_timing(self, analysis_date: pd.Timestamp, 
@@ -1267,7 +1231,7 @@ class QVMEngineV2Enhanced:
                 return low_vol_scores
             
             # Calculate daily returns
-            price_data['return'] = price_data.groupby('ticker')['adj_close'].pct_change()
+            price_data['return'] = price_data.groupby('ticker')['adj_close'].pct_change(fill_method=None)
             
             # Calculate rolling volatility (252-day annualized)
             volatility_data = price_data.groupby('ticker')['return'].rolling(

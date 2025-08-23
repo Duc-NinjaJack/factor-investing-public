@@ -269,6 +269,20 @@ class QVMEngineV201Flat:
         self.logger.info(f"QVM Engine v{self.engine_version} initialized successfully")
         self.logger.info(f"QVM Weights: Quality {self.qvm_weights['quality']*100}%, Value {self.qvm_weights['value']*100}%, Momentum {self.qvm_weights['momentum']*100}%")
         self.logger.info("Flat Methodology Features: Individual factor exposure, Universal sector neutralization, Single-step combination")
+        # One-time normalization policy summary for visibility (align with v2.1.1/v2.2.1 engines)
+        try:
+            norm_cfg = getattr(self, 'normalization_config', {}) or {}
+            fallback = norm_cfg.get('fallback', [])
+            min_size = norm_cfg.get('min_sector_size', 'dynamic')
+            robust = norm_cfg.get('robust', 'median_mad')
+            self.logger.info(
+                "Normalization policy (init): fallback=%s | min_sector_size=%s | robust=%s",
+                ','.join(fallback) if isinstance(fallback, list) else str(fallback),
+                str(min_size),
+                str(robust)
+            )
+        except Exception:
+            pass
     
     def _setup_logging(self, log_level: str) -> logging.Logger:
         """Setup comprehensive logging for production use."""
@@ -553,172 +567,55 @@ class QVMEngineV201Flat:
                                       metric_column: str, 
                                       sector_column: str = 'sector') -> pd.Series:
         """
-        INSTITUTIONAL METHODOLOGY: Sector-neutral z-scores as PRIMARY approach.
-        
-        This implements the corrected institutional framework based on expert feedback:
-        - PRIMARY: Sector-neutral normalization (extracts pure alpha signal)
-        - FALLBACK: Cross-sectional only for very small sectors (<10 tickers)
-        
-        The key insight is that sector-neutral normalization should be the DEFAULT,
-        not a sophisticated enhancement. This separates signal generation from
-        portfolio construction as per institutional best practices.
+        Hierarchical, diagnostics-aware normalization with dynamic min-sector-size.
+        Delegates to shared utility to ensure consistent behavior across engines.
         """
         try:
-            # Get sector counts and determine methodology
-            sector_counts = data.groupby(sector_column)[metric_column].count()
-            # Persist diagnostics and emit one-line summary
             try:
-                from production.utils.diagnostics import persist_sector_sizes_row, NormalizationFallbackTracker
-            except Exception:
-                persist_sector_sizes_row = None
-                NormalizationFallbackTracker = None
+                from production.utils.normalization import (
+                    NormalizationConfig,
+                    compute_hierarchical_zscores,
+                )
+            except Exception as _imp_e:
+                self.logger.error(f"Normalization utilities unavailable: {_imp_e}")
+                return pd.Series(0.0, index=data.index)
+
+            # Resolve configuration if present, else use defaults
+            cfg = None
             try:
-                universe_size = int(data['ticker'].nunique()) if 'ticker' in data.columns else int(len(data))
-            except Exception:
-                universe_size = int(len(data))
-            if persist_sector_sizes_row is not None:
-                try:
-                    # Attempt to infer current date from data if available
-                    inferred_date = None
-                    try:
-                        if 'date' in data.columns:
-                            inferred_date = pd.to_datetime(data['date'].iloc[0])
-                    except Exception:
-                        inferred_date = None
-                    persist_sector_sizes_row(
-                        inferred_date or pd.to_datetime('today').normalize(),
-                        sector_counts,
-                        universe_size,
-                        logger=self.logger,
+                if hasattr(self, 'normalization_config') and isinstance(self.normalization_config, dict):
+                    cfg = NormalizationConfig(
+                        min_sector_size=(
+                            self.normalization_config.get('min_sector_size')
+                            if self.normalization_config.get('min_sector_size') != 'dynamic'
+                            else None
+                        ),
+                        robust=self.normalization_config.get('robust', 'median_mad'),
+                        fallback=self.normalization_config.get('fallback', ['sector', 'industry', 'market']),
                     )
-                except Exception:
-                    pass
-            
-            # Resolve dynamic min sector size per universe if configured
-            try:
-                universe_size = int(data['ticker'].nunique()) if 'ticker' in data.columns else int(len(data))
             except Exception:
-                universe_size = int(len(data))
+                cfg = None
 
-            min_cfg = (self.normalization_config.get('min_sector_size')
-                       if hasattr(self, 'normalization_config') else 'dynamic')
-            if isinstance(min_cfg, int):
-                min_sector_size = int(min_cfg)
-            else:
-                # dynamic: min(10, max(3, round(0.02 * universe_size)))
-                dynamic_val = max(3, int(round(0.02 * universe_size)))
-                min_sector_size = min(10, dynamic_val)
-
-            robust_method = (self.normalization_config.get('robust')
-                             if hasattr(self, 'normalization_config') else 'median_mad')
-            fallback_order = (self.normalization_config.get('fallback')
-                              if hasattr(self, 'normalization_config') else ['sector', 'industry', 'market'])
-            # Normalize fallback order values
-            fallback_order = [str(x).lower() for x in (fallback_order or ['sector', 'industry', 'market'])]
-
-            # Helper: robust z-score using median/MAD
-            def robust_zscore(series: pd.Series) -> pd.Series:
-                vals = series.astype(float)
-                med = vals.median()
-                mad = (vals - med).abs().median()
-                scale = 1.4826 * mad if mad and mad > 0 else float(vals.std() if vals.std() > 0 else 1.0)
-                if scale == 0:
-                    return pd.Series(0.0, index=series.index)
-                return (vals - med) / scale
-
-            # Helper: standard z-score
-            def standard_zscore(series: pd.Series) -> pd.Series:
-                vals = series.astype(float)
-                mean_val = vals.mean()
-                std_val = vals.std()
-                if std_val == 0:
-                    return pd.Series(0.0, index=series.index)
-                return (vals - mean_val) / std_val
-
-            # Helper: apply James–Stein style shrinkage for thin groups
-            def apply_shrinkage(group_scores: pd.Series, group_size: int) -> pd.Series:
-                if group_size >= min_sector_size or min_sector_size <= 0:
-                    return group_scores
-                shrink = float(group_size) / float(min_sector_size)
-                # shrink towards 0 (global mean of z-scores)
-                return group_scores * shrink
-
-            # Main hierarchical normalization
-            z_scores = pd.Series(index=data.index, dtype=float)
-
-            # Track fraction of small sectors for WARN demotion policy
-            small_fraction = float((sector_counts < min_sector_size).mean()) if len(sector_counts) > 0 else 1.0
-
-            remaining_idx = pd.Index(data.index)
-
-            for level in fallback_order:
-                if remaining_idx.empty:
-                    break
-
-                if level == 'sector' and sector_column in data.columns:
-                    group_key = data.loc[remaining_idx, sector_column]
-                elif level == 'industry' and 'industry' in data.columns:
-                    group_key = data.loc[remaining_idx, 'industry']
-                elif level in ('market', 'all', 'global'):
-                    group_key = pd.Series('market', index=remaining_idx)
-                else:
-                    # Level not available, skip
-                    continue
-
-                # Compute z-scores per group for this level
-                def compute_group(group: pd.DataFrame) -> pd.Series:
-                    series = group[metric_column]
-                    # Choose robust or standard method
-                    if level in ('market', 'all', 'global'):
-                        z = robust_zscore(series) if robust_method == 'median_mad' else standard_zscore(series)
-                        return z
-                    # Within-group standard z-score
-                    z = standard_zscore(series)
-                    # Apply shrinkage for thin groups
-                    return apply_shrinkage(z, group_size=len(series.dropna()))
-
-                grouped = data.loc[remaining_idx].groupby(group_key, dropna=False)
-                level_scores = grouped.apply(lambda g: compute_group(g)).reset_index(level=0, drop=True)
-
-                # Assign where not yet filled and available
-                assignable = level_scores.index
-                z_scores.loc[assignable] = z_scores.loc[assignable].where(z_scores.loc[assignable].notna(), level_scores)
-
-                # Update remaining indices (those still NaN)
-                remaining_idx = z_scores[z_scores.isna()].index
-
-            # For any still-missing values (all-NaN), set to 0
-            if z_scores.isna().any():
-                z_scores = z_scores.fillna(0.0)
-
-            # Demote fallback logging to DEBUG; WARN only on sustained high fraction via tracker
-            try:
-                tracker = getattr(self, '_norm_fallback_tracker', None)
-                if tracker is None and NormalizationFallbackTracker is not None:
-                    tracker = NormalizationFallbackTracker()
-                    setattr(self, '_norm_fallback_tracker', tracker)
-            except Exception:
-                tracker = None
-
-            msg = (
-                f"Normalization pipeline: order={fallback_order} | min_sector_size={min_sector_size} | "
-                f"small_sectors_frac={small_fraction:.2f}"
+            z, info = compute_hierarchical_zscores(
+                data=data,
+                metric_column=metric_column,
+                sector_column=sector_column,
+                industry_column='industry',
+                cfg=cfg,
+                logger=self.logger,
             )
-            if tracker is not None and tracker.update_and_should_warn(small_fraction):
-                self.logger.warning(msg)
-            else:
-                self.logger.debug(msg)
-            
-            # Winsorization at 3 standard deviations (institutional standard)
-            z_scores = z_scores.clip(-3, 3)
-            
-            self.logger.info(f"Calculated hierarchical normalized z-scores for {len(z_scores)} observations")
-            
-            return z_scores
-            
+
+            # Emit concise diagnostics summary
+            self.logger.info(
+                "Calculated normalized z-scores | order=%s | min_sector_size=%s | small_frac=%.2f | universe=%s",
+                info.get('fallback_order'),
+                info.get('min_sector_size'),
+                info.get('small_sectors_fraction') if info.get('small_sectors_fraction') is not None else float('nan'),
+                info.get('universe_size'),
+            )
+            return z
         except Exception as e:
-            self.logger.error(f"Error in institutional normalization: {e}")
-            # Emergency fallback - return neutral scores
+            self.logger.error(f"Error in hierarchical normalization: {e}")
             return pd.Series(0.0, index=data.index)
     
     def get_fundamentals_correct_timing(self, analysis_date: pd.Timestamp, 
@@ -1888,6 +1785,13 @@ class QVMEngineV201Flat:
             
             individual_factors = {}
             
+            # Optional features utils path (opt-in, no default behavior change)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_momentum', False))
+            except Exception:
+                use_utils = False
+
             # Get price data
             ticker_str = "', '".join(universe)
             start_date = analysis_date - pd.DateOffset(months=14)
@@ -1908,8 +1812,53 @@ class QVMEngineV201Flat:
             if price_data.empty:
                 self.logger.warning("No price data available for momentum calculation")
                 return individual_factors
-            
-            # Calculate returns for each period
+
+            if use_utils:
+                try:
+                    from production.utils.features import compute_momentum_raw, make_normalization_frame
+                    self.logger.info("Features utils enabled: compute_momentum_raw for horizons (opt-in)")
+                    # Build prices frame expected by utility
+                    prices = price_data.rename(columns={'adj_close': 'price'})[['date', 'ticker', 'price']].copy()
+                    # Normalize lookback keys to lowercase labels
+                    lookbacks = {
+                        '1m': int(self.momentum_lookbacks.get('1M', 1)),
+                        '3m': int(self.momentum_lookbacks.get('3M', 3)),
+                        '6m': int(self.momentum_lookbacks.get('6M', 6)),
+                        '12m': int(self.momentum_lookbacks.get('12M', 12)),
+                    }
+                    raw_map = compute_momentum_raw(
+                        prices=prices,
+                        analysis_date=analysis_date,
+                        universe=universe,
+                        lookbacks_months=lookbacks,
+                        skip_months=int(self.momentum_skip),
+                        logger=self.logger,
+                    )
+                    if not raw_map:
+                        return {}
+                    # Prepare sector mapping
+                    if sector_map is not None:
+                        sec_map_dict = (
+                            sector_map.set_index('ticker')['sector'].to_dict()
+                            if 'ticker' in sector_map.columns else sector_map['sector'].to_dict()
+                        )
+                    else:
+                        sec_df = self.get_sector_mapping()
+                        sec_map_dict = dict(zip(sec_df['ticker'].astype(str), sec_df['sector'].astype(str)))
+                    for label, series in raw_map.items():
+                        if series is None or series.empty:
+                            continue
+                        norm_df = make_normalization_frame(series, sec_map_dict, f'momentum_{label}_raw', 'sector')
+                        if norm_df.empty:
+                            continue
+                        z = self.calculate_sector_neutral_zscore(norm_df, f'momentum_{label}_raw', 'sector')
+                        individual_factors[f'momentum_{label}_z'] = pd.Series(z.values, index=norm_df['ticker'], name=f'momentum_{label}_z')
+                    self.logger.info(f"Calculated {len(individual_factors)} individual momentum factors (features utils)")
+                    return individual_factors
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils momentum path failed, using engine implementation: {_ue}")
+
+            # Engine's default implementation
             periods = [
                 ('1m', self.momentum_lookbacks['1M'], self.momentum_skip),
                 ('3m', self.momentum_lookbacks['3M'], self.momentum_skip),

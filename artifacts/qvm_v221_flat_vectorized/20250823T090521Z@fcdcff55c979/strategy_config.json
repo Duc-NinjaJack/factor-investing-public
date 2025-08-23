@@ -1,0 +1,36 @@
+{
+  "factor_weights": {
+    "defensive": 0.25,
+    "momentum": 0.25,
+    "quality": 0.25,
+    "value": 0.25
+  },
+  "output": {
+    "logging": {
+      "level": "INFO"
+    }
+  },
+  "risk_management": {
+    "cash_allocation": {
+      "drawdown_10": 0.4,
+      "drawdown_15": 0.6,
+      "drawdown_20": 0.8,
+      "drawdown_25": 0.9,
+      "drawdown_30": 0.95,
+      "drawdown_40": 0.98,
+      "drawdown_5": 0.2,
+      "drawdown_50": 0.99
+    },
+    "default_cash": 0.05,
+    "enabled": true
+  },
+  "strategy": {
+    "name": "QVM 4-Pillar Flat Strategy",
+    "portfolio": {
+      "portfolio_size": 60,
+      "starting_capital": 10000000000,
+      "universe_size": 100
+    },
+    "version": "2.0.1"
+  }
+}

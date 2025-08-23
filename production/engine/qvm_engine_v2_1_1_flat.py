@@ -109,6 +109,20 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
                        f"Defensive {self.qvm_weights['defensive']*100:.1f}%")
         self.logger.info(f"BANKING TABLE FIX: Using {self.intermediary_tables['banking']} for banking data")
         self.logger.info("="*60)
+        # One-time normalization policy log (inherited from v2.0.1 flat)
+        try:
+            norm_cfg = getattr(self, 'normalization_config', {}) or {}
+            fallback = norm_cfg.get('fallback', [])
+            min_size = norm_cfg.get('min_sector_size', 'dynamic')
+            robust = norm_cfg.get('robust', 'median_mad')
+            self.logger.info(
+                "Normalization policy (init): fallback=%s | min_sector_size=%s | robust=%s",
+                ','.join(fallback) if isinstance(fallback, list) else str(fallback),
+                str(min_size),
+                str(robust)
+            )
+        except Exception:
+            pass
     
     def _load_enhanced_flat_weights(self):
         """Override parent weights to use enhanced sector-specific versions with new factors."""
@@ -366,6 +380,41 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
                 self.logger.warning("No price data for volatility calculation.")
                 return {}
 
+            # Optional features utils path (opt-in, no default behavior change)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_lowvol', False))
+            except Exception:
+                use_utils = False
+
+            if use_utils:
+                try:
+                    from production.utils.features import compute_low_volatility_raw, make_normalization_frame
+                    self.logger.info("Features utils enabled: compute_low_volatility_raw (opt-in)")
+                    prices = price_data.rename(columns={'close': 'price'})[['date', 'ticker', 'price']].copy()
+                    raw = compute_low_volatility_raw(
+                        prices=prices,
+                        analysis_date=analysis_date,
+                        universe=universe,
+                        lookback_days=int(self.low_vol_lookback),
+                        logger=self.logger,
+                    )
+                    if raw is None or raw.empty:
+                        return {}
+                    # Sector map normalize
+                    if sector_map is None:
+                        sector_map = self.get_sector_mapping().set_index('ticker')
+                    sec_map_dict = sector_map['sector'].to_dict()
+                    norm_df = make_normalization_frame(raw, sec_map_dict, 'low_volatility_raw', 'sector')
+                    if norm_df.empty:
+                        return {}
+                    low_vol_z = self.calculate_sector_neutral_zscore(norm_df, 'low_volatility_raw', 'sector')
+                    low_vol_series = pd.Series(low_vol_z.values, index=norm_df['ticker'], name='low_volatility_z')
+                    self.logger.info(f"Low-Vol calculation complete. Found signals for {len(low_vol_series)} tickers.")
+                    return {'low_volatility_z': low_vol_series}
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils low-vol path failed, using engine implementation: {_ue}")
+
             # Calculate 63-day rolling volatility (institutional standard)
             low_vol_raw = {}
             calculated_count = 0
@@ -481,11 +530,31 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
                     for t, s in scores.items(): 
                         raw_scores[t] = {'raw': s, 'max': 5}
 
-            # Sector-scaled normalization then sector-neutral z-scoring
-            normalized_scores = {
-                t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 
-                for t, v in raw_scores.items()
-            }
+            # Optional features utils path for normalization to [0,1] (opt-in)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_fscore', False))
+            except Exception:
+                use_utils = False
+
+            if use_utils:
+                try:
+                    from production.utils.features import normalize_f_score_to_unit
+                    self.logger.info("Features utils enabled: normalize_f_score_to_unit (opt-in)")
+                    norm_series = normalize_f_score_to_unit({t: (v['raw'], v['max']) for t, v in raw_scores.items()}, logger=self.logger)
+                    normalized_scores = norm_series.to_dict()
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils F-Score normalization failed, using engine implementation: {_ue}")
+                    normalized_scores = {
+                        t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 
+                        for t, v in raw_scores.items()
+                    }
+            else:
+                # Sector-scaled normalization then sector-neutral z-scoring
+                normalized_scores = {
+                    t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 
+                    for t, v in raw_scores.items()
+                }
             
             if not normalized_scores:
                 return {}
@@ -582,63 +651,75 @@ class QVMEngineV211Flat(QVMEngineV201Flat):
             fcf_data = pd.concat(fcf_data_list, ignore_index=True) if fcf_data_list else pd.DataFrame()
             market_data = pd.concat(market_data_list, ignore_index=True) if market_data_list else pd.DataFrame()
 
-            # SMART FCF CALCULATION: Use actual Capex when available, fall back to CFI proxy
+            # Optional features utils path (opt-in, no default behavior change)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_fcf_yield', False))
+            except Exception:
+                use_utils = False
+
             fcf_yields = {}
-            if not fcf_data.empty and not market_data.empty:
-                combined = pd.merge(fcf_data, market_data, on='ticker', how='inner')
-                
-                # Track FCF calculation methodology for data quality KPI
-                capex_imputed_count = 0
-                actual_capex_count = 0
-                total_fcf_calculations = 0
-                
-                for idx, row in combined.iterrows():
-                    ticker = row['ticker']
-                    net_cfo = row.get('NetCFO_TTM', 0)
-                    net_cfi = row.get('NetCFI_TTM', 0)
-                    actual_capex = row.get('CapEx_TTM', 0)
-                    market_cap = row.get('market_cap', 0)
+            if use_utils and (not fcf_data.empty and not market_data.empty):
+                try:
+                    from production.utils.features import prepare_fcf_yield_raw
+                    self.logger.info("Features utils enabled: prepare_fcf_yield_raw (opt-in)")
+                    raw = prepare_fcf_yield_raw(fundamentals=fcf_data, market_caps=market_data, use_actual_capex_when_available=True, logger=self.logger)
+                    fcf_yields = raw.to_dict()
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils FCF path failed, using engine implementation: {_ue}")
+
+            if not fcf_yields:
+                # SMART FCF CALCULATION: Use actual Capex when available, fall back to CFI proxy
+                if not fcf_data.empty and not market_data.empty:
+                    combined = pd.merge(fcf_data, market_data, on='ticker', how='inner')
                     
-                    if pd.notna(net_cfo) and market_cap > 0:
-                        total_fcf_calculations += 1
+                    # Track FCF calculation methodology for data quality KPI
+                    capex_imputed_count = 0
+                    actual_capex_count = 0
+                    total_fcf_calculations = 0
+                    
+                    for idx, row in combined.iterrows():
+                        ticker = row['ticker']
+                        net_cfo = row.get('NetCFO_TTM', 0)
+                        net_cfi = row.get('NetCFI_TTM', 0)
+                        actual_capex = row.get('CapEx_TTM', 0)
+                        market_cap = row.get('market_cap', 0)
                         
-                        # SMART METHODOLOGY: Prioritize actual Capex over CFI proxy
-                        if pd.notna(actual_capex) and actual_capex != 0:
-                            # Use actual Capex data (preferred method)
-                            # Note: Capex is negative (outflow), so FCF = CFO - Capex becomes CFO - (-capex) = CFO + abs(capex)
-                            fcf = net_cfo - actual_capex
-                            actual_capex_count += 1
-                        elif pd.notna(net_cfi):
-                            # Fall back to CFI proxy method when Capex unavailable
-                            capex_proxy = max(0, -net_cfi)
-                            fcf = net_cfo - capex_proxy
-                            capex_imputed_count += 1
-                        else:
-                            # No Capex data available - skip this ticker
-                            continue
+                        if pd.notna(net_cfo) and market_cap > 0:
+                            total_fcf_calculations += 1
+                            
+                            # SMART METHODOLOGY: Prioritize actual Capex over CFI proxy
+                            if pd.notna(actual_capex) and actual_capex != 0:
+                                fcf = net_cfo - actual_capex
+                                actual_capex_count += 1
+                            elif pd.notna(net_cfi):
+                                capex_proxy = max(0, -net_cfi)
+                                fcf = net_cfo - capex_proxy
+                                capex_imputed_count += 1
+                            else:
+                                continue
+                            
+                            fcf_yield = fcf / market_cap
+                            fcf_yields[ticker] = fcf_yield
+                    
+                    # ENHANCED DATA QUALITY TRACKING: Report actual vs imputed Capex usage
+                    if total_fcf_calculations > 0:
+                        actual_capex_rate = actual_capex_count / total_fcf_calculations
+                        imputation_rate = capex_imputed_count / total_fcf_calculations
                         
-                        fcf_yield = fcf / market_cap
-                        fcf_yields[ticker] = fcf_yield
-                
-                # ENHANCED DATA QUALITY TRACKING: Report actual vs imputed Capex usage
-                if total_fcf_calculations > 0:
-                    actual_capex_rate = actual_capex_count / total_fcf_calculations
-                    imputation_rate = capex_imputed_count / total_fcf_calculations
-                    
-                    self.logger.info(f"FCF Calculation Summary: {actual_capex_count} actual Capex ({actual_capex_rate:.1%}), "
-                                   f"{capex_imputed_count} CFI proxy ({imputation_rate:.1%}), "
-                                   f"{total_fcf_calculations} total")
-                    
-                    # Only warn if we're still relying heavily on imputation despite having better data
-                    if imputation_rate > 0.40:
-                        import warnings
-                        warning_msg = (
-                            f"FCF Yield data quality alert: CFI proxy usage {imputation_rate:.1%} "
-                            f"exceeds 40% threshold ({capex_imputed_count}/{total_fcf_calculations} tickers). "
-                            f"Smart methodology now uses actual CapEx_TTM when available ({actual_capex_rate:.1%})."
-                        )
-                        warnings.warn(warning_msg, UserWarning, stacklevel=2)
-                        self.logger.warning(warning_msg)
+                        self.logger.info(f"FCF Calculation Summary: {actual_capex_count} actual Capex ({actual_capex_rate:.1%}), "
+                                       f"{capex_imputed_count} CFI proxy ({imputation_rate:.1%}), "
+                                       f"{total_fcf_calculations} total")
+                        
+                        if imputation_rate > 0.40:
+                            import warnings
+                            warning_msg = (
+                                f"FCF Yield data quality alert: CFI proxy usage {imputation_rate:.1%} "
+                                f"exceeds 40% threshold ({capex_imputed_count}/{total_fcf_calculations} tickers). "
+                                f"Smart methodology now uses actual CapEx_TTM when available ({actual_capex_rate:.1%})."
+                            )
+                            warnings.warn(warning_msg, UserWarning, stacklevel=2)
+                            self.logger.warning(warning_msg)
 
             if not fcf_yields:
                 return {}

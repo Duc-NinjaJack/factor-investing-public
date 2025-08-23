@@ -15,7 +15,7 @@ import os
 import multiprocessing as mp
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable, Iterable, TypeVar, List, Any
 
 import pandas as pd
 
@@ -49,15 +49,96 @@ def materialize_dataframe(df: pd.DataFrame, output_path: str, logger: Optional[l
     return str(path.resolve())
 
 
-def disable_db_access_in_children() -> None:
+def disable_db_access_in_children(force: Optional[bool] = None, logger: Optional[logging.Logger] = None) -> None:
     """
-    Set an environment flag to signal child processes not to open DB connections.
-    Runners should check this flag before constructing engines.
+    Ensure the environment flag controlling DB access in child processes is set.
+
+    Behavior:
+    - If 'force' is None: respect any pre-set value. If not set, default to disabling (set to '1').
+    - If 'force' is True/False: explicitly set to '1'/'0' respectively.
+    - Optionally log the resulting state when a logger is provided.
     """
-    os.environ['DISABLE_DB_IN_CHILDREN'] = '1'
+    existing = os.environ.get('DISABLE_DB_IN_CHILDREN')
+    if force is None:
+        if existing is None:
+            os.environ['DISABLE_DB_IN_CHILDREN'] = '1'
+            if logger:
+                logger.info("Parallel safety: set DISABLE_DB_IN_CHILDREN=1 (default)")
+        else:
+            if logger:
+                logger.info(f"Parallel safety: keeping DISABLE_DB_IN_CHILDREN={existing} (pre-set)")
+    else:
+        os.environ['DISABLE_DB_IN_CHILDREN'] = '1' if force else '0'
+        if logger:
+            logger.info(f"Parallel safety: set DISABLE_DB_IN_CHILDREN={os.environ['DISABLE_DB_IN_CHILDREN']} (forced)")
 
 
 def db_access_allowed() -> bool:
     return os.environ.get('DISABLE_DB_IN_CHILDREN', '0') != '1'
 
+
+T = TypeVar('T')
+U = TypeVar('U')
+
+
+def _child_initializer_set_env():
+    # Child process initializer to ensure DB is disabled
+    os.environ['DISABLE_DB_IN_CHILDREN'] = '1'
+
+
+def safe_parallel_map(
+    func: Callable[[T], U],
+    iterable: Iterable[T],
+    *,
+    max_workers: Optional[int] = None,
+    use_threads: bool = False,
+    logger: Optional[logging.Logger] = None,
+) -> List[U]:
+    """
+    Execute a map operation in parallel with safety guards and clear logging.
+
+    - Enforces 'spawn' start method for process-based execution
+    - Disables DB access in child processes via DISABLE_DB_IN_CHILDREN=1
+    - Emits info logs when fan-out occurs and suggests prematerialization to Parquet
+    - Falls back to sequential execution on error
+    """
+    from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+
+    items = list(iterable)
+    n = len(items)
+    if logger:
+        logger.info("Parallel fan-out: %d tasks | executor=%s | max_workers=%s", n, 'threads' if use_threads else 'processes', str(max_workers or 'default'))
+        logger.info("Prematerialization hint: For high fan-out, materialize inputs to Parquet and pass file paths instead of DB handles.")
+
+    if n == 0:
+        return []
+
+    # Ensure spawn and disable DB in children
+    try:
+        ensure_spawn_start_method(logger)
+    except Exception:
+        pass
+
+    results: List[U] = []
+    Executor = ThreadPoolExecutor if use_threads else ProcessPoolExecutor
+    try:
+        if use_threads:
+            # Threads share env; still set flag in parent for cooperative checks
+            disable_db_access_in_children(force=True, logger=logger)
+            with Executor(max_workers=max_workers) as ex:
+                futs = [ex.submit(func, item) for item in items]
+                for fut in as_completed(futs):
+                    results.append(fut.result())
+        else:
+            with Executor(max_workers=max_workers, initializer=_child_initializer_set_env) as ex:
+                futs = [ex.submit(func, item) for item in items]
+                for fut in as_completed(futs):
+                    results.append(fut.result())
+    except Exception as e:
+        if logger:
+            logger.error("Parallel execution failed (%s). Falling back to sequential.", e)
+        # Sequential fallback
+        results = [func(item) for item in items]
+
+    return results
 

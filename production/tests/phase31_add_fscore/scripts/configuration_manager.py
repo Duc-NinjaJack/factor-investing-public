@@ -71,6 +71,17 @@ def validate_version_compatibility(strategy_config: Dict, backtest_config: Dict)
 
 def load_strategy_config(config_path: str = None) -> Dict:
     """Load strategy configuration from YAML file."""
+    # Honor explicit path if provided
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as file:
+                config = yaml.safe_load(file)
+            print(f"✅ Strategy configuration loaded from {config_path}")
+            return config
+        except yaml.YAMLError as e:
+            print(f"❌ Error parsing strategy config {config_path}: {e}")
+            # fall through to defaults list
+
     # Try multiple possible paths for the strategy config
     possible_paths = [
         # From the current test directory
@@ -102,6 +113,30 @@ def load_strategy_config(config_path: str = None) -> Dict:
 
 def load_backtest_config(config_path: str = None) -> Dict:
     """Load and merge backtest configuration with strategy-compatible settings."""
+    # Honor explicit path if it appears to be a backtest config file
+    if config_path and os.path.basename(str(config_path)).startswith('backtest_config') and os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as file:
+                config = yaml.safe_load(file)
+            print(f"✅ Backtest configuration loaded from {config_path}")
+            merged_config = merge_backtest_with_strategy_config(config)
+            # Attempt schema validation
+            try:
+                class _NullLogger:
+                    def debug(self, *a, **k):
+                        pass
+                    def info(self, *a, **k):
+                        pass
+                    def error(self, *a, **k):
+                        pass
+                merged_config = validate_backtest_config(merged_config, _NullLogger())
+            except Exception:
+                pass
+            return merged_config
+        except yaml.YAMLError as e:
+            print(f"❌ Error parsing backtest config {config_path}: {e}")
+            # fall through to defaults list
+
     # Try multiple possible paths for the backtest config
     possible_paths = [
         # From the current test directory

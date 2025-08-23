@@ -80,6 +80,10 @@ Scope: Documents the current architecture as implemented by `production/tests/ph
 - Added telemetry: factor coverage rate, turnover per rebalance, factor calc latency (ms), optional non-vectorized vs vectorized timings (first date), optional SQL counters.
 - Guardrails: the runner raises on missing benchmark series, empty holdings across window, or no valid aligned rebalance dates.
 
+### Normalization Alignment Fix (v2.2.1)
+- Sector-neutral z-scoring defensively coerces groupby results to a 1D `Series` and reindexes to the input row order to prevent accidental 2D alignment when a `DataFrame` leaks through from `groupby.apply`.
+- This eliminates spurious "cannot align with a higher dimensional NDF" warnings without changing numerical results or sort order. Stable mergesort ordering is preserved.
+
 ### Data Lineage & Reproducibility
 - Deterministic artifacts path via config hash.
 - Persisted input configs and all derived series ensure experiment replayability.

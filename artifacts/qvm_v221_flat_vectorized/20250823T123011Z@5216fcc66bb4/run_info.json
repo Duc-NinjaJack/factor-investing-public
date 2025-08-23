@@ -1,0 +1,12 @@
+{
+  "blas_threads": {
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "dtype": "float64",
+  "force_parallel": false,
+  "jobs": 4,
+  "num_rebalance_dates": 1,
+  "wall_clock_ms": 187997.087
+}

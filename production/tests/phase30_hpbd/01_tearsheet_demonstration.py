@@ -722,7 +722,11 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     table.set_fontsize(14)
     table.scale(1, 2.5)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    # Prefer constrained layout at figure creation; avoid tight_layout warnings
+    try:
+        plt.get_current_fig_manager().canvas.figure.set_constrained_layout(True)
+    except Exception:
+        pass
     plt.show()
 
 def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:

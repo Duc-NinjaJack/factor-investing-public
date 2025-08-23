@@ -1,0 +1,41 @@
+{
+  "active_window": {
+    "end": "2021-03-31",
+    "start": "2021-03-01"
+  },
+  "backtest_windows": {
+    "ADAPTIVE_2016_2025": {
+      "end": "2025-12-31",
+      "start": "2016-01-01"
+    },
+    "FULL_2016_2025": {
+      "end": "2025-12-31",
+      "start": "2016-01-01"
+    },
+    "LIQUID_2018_2025": {
+      "end": "2025-12-31",
+      "start": "2018-01-01"
+    },
+    "POST_DERIV_2020_2025": {
+      "end": "2025-12-31",
+      "start": "2020-01-01"
+    }
+  },
+  "fundamentals": {
+    "reporting_lag_days": 60
+  },
+  "ic_hurdles": {
+    "annual_return_net": 0.15,
+    "annual_volatility": 0.15,
+    "beta_vs_vnindex": 0.75,
+    "information_ratio": 0.8,
+    "max_drawdown": -0.35,
+    "sharpe_ratio_net": 1.0
+  },
+  "rebalance": {
+    "anchor": "first_trading_day",
+    "lag_days": 0
+  },
+  "slippage_bps": 0.0,
+  "transaction_cost_bps": 10.0
+}

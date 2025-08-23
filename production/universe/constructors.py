@@ -163,12 +163,12 @@ def get_liquid_universe_dataframe(
 
     # Add sector information
     tickers = universe_df['ticker'].tolist()
-    sector_query = text("SELECT ticker, sector FROM master_info WHERE ticker IN :tickers")
+    sector_query = text("SELECT ticker, sector FROM master_info WHERE ticker IN :tickers ORDER BY ticker")
     with engine.connect() as conn:
         sector_map = pd.read_sql(sector_query, conn, params={'tickers': tuple(tickers)}).set_index('ticker')['sector']
 
     universe_df['sector'] = universe_df['ticker'].map(sector_map)
-    universe_df = universe_df.sort_values('adtv_bn_vnd', ascending=False, kind='mergesort').reset_index(drop=True)
+    universe_df = universe_df.sort_values(['adtv_bn_vnd','ticker'], ascending=[False, True], kind='mergesort').reset_index(drop=True)
     universe_df['universe_rank'] = universe_df.index + 1
     universe_df['universe_date'] = analysis_date.date()
 
@@ -275,7 +275,8 @@ def get_liquid_universe_and_counts(
     mask_adtv = df_after_trading['adtv_bn_vnd'] >= final_config['adtv_threshold_bn']
     fail_adtv = int((~mask_adtv).sum())
     filtered_df = df_after_trading[mask_adtv]
-    universe_df = filtered_df.sort_values('adtv_bn_vnd', ascending=False).head(final_config['top_n'])
+    # Enforce deterministic tie-breaking with a stable sort
+    universe_df = filtered_df.sort_values('adtv_bn_vnd', ascending=False, kind='mergesort').head(final_config['top_n'])
     tickers = universe_df['ticker'].tolist()
     counts = {
         'candidates': int(candidates),

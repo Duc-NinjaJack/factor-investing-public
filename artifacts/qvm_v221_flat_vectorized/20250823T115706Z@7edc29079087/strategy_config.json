@@ -1,0 +1,69 @@
+{
+  "backtest": {
+    "active_window": {
+      "end": "2020-12-31",
+      "start": "2019-01-01"
+    },
+    "fundamentals": {
+      "reporting_lag_days": 75
+    },
+    "output": {
+      "export_parquet": false
+    },
+    "parallel": {
+      "enabled": true,
+      "warmup_months": 3
+    },
+    "portfolio": {
+      "rebalance_frequency": "M"
+    },
+    "risk_overlay": {
+      "mode": "drawdown_based",
+      "volatility_target": 0.11
+    },
+    "selection": {
+      "enable_constraints": false
+    },
+    "slippage_bps": 0,
+    "transaction_cost_bps": 10
+  },
+  "f_score": {
+    "benchmark_both": false,
+    "use_vectorized_fscore_221": true
+  },
+  "factor_weights": {
+    "defensive": 0.25,
+    "momentum": 0.25,
+    "quality": 0.25,
+    "value": 0.25
+  },
+  "normalization": {
+    "fallback": [
+      "sector",
+      "industry",
+      "market"
+    ],
+    "min_sector_size": "dynamic",
+    "robust": "median_mad"
+  },
+  "risk_management": {
+    "cash_allocation": {
+      "drawdown_10": 0.4,
+      "drawdown_15": 0.6,
+      "drawdown_20": 0.8,
+      "drawdown_25": 0.9,
+      "drawdown_5": 0.2
+    },
+    "default_cash": 0.05,
+    "enabled": true
+  },
+  "strategy": {
+    "name": "QVM 4-Pillar Flat Strategy (Golden)",
+    "portfolio": {
+      "portfolio_size": 20,
+      "starting_capital": 10000000000,
+      "universe_size": 100
+    },
+    "version": "2.0.1"
+  }
+}

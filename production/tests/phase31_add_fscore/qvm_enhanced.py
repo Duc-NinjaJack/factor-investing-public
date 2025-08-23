@@ -480,7 +480,7 @@ def generate_sample_portfolio_snapshots(n_snapshots: int = 12) -> list:
 # %%
 def plot_factor_score_distributions(factor_df: pd.DataFrame, save_path: Path = None):
     """Plot distributions of factor scores."""
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
     fig.suptitle('Factor Score Distributions', fontsize=16, fontweight='bold')
     
     # Quality factor distribution
@@ -515,7 +515,7 @@ def plot_factor_score_distributions(factor_df: pd.DataFrame, save_path: Path = N
     axes[1, 1].axvline(factor_df['composite_score'].mean(), color='red', linestyle='--', label=f'Mean: {factor_df["composite_score"].mean():.3f}')
     axes[1, 1].legend()
     
-    plt.tight_layout()
+    # constrained_layout handles spacing
     
     if save_path:
         plt.savefig(save_path / 'factor_distributions.png', dpi=300, bbox_inches='tight')
@@ -525,7 +525,7 @@ def plot_factor_score_distributions(factor_df: pd.DataFrame, save_path: Path = N
 
 def plot_portfolio_evolution(historical_data: dict, save_path: Path = None):
     """Plot portfolio evolution over time."""
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
     fig.suptitle('Portfolio Evolution Over Time', fontsize=16, fontweight='bold')
     
     dates = [d.strftime('%Y-%m') for d in historical_data['dates']]
@@ -589,7 +589,7 @@ def plot_portfolio_evolution(historical_data: dict, save_path: Path = None):
         axes[1, 1].legend(lines, labels, loc='upper left')
         axes[1, 1].grid(True, alpha=0.3)
     
-    plt.tight_layout()
+    # constrained_layout handles spacing
     
     if save_path:
         plt.savefig(save_path / 'portfolio_evolution.png', dpi=300, bbox_inches='tight')
@@ -599,7 +599,7 @@ def plot_portfolio_evolution(historical_data: dict, save_path: Path = None):
 
 def plot_holdings_analysis(holdings_df: pd.DataFrame, save_path: Path = None):
     """Plot holdings analysis."""
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
     fig.suptitle('Portfolio Holdings Analysis', fontsize=16, fontweight='bold')
     
     # Top holdings by weight
@@ -638,7 +638,7 @@ def plot_holdings_analysis(holdings_df: pd.DataFrame, save_path: Path = None):
         axes[1, 1].set_ylabel('Frequency')
         axes[1, 1].set_title('Market Value Distribution')
     
-    plt.tight_layout()
+    # constrained_layout handles spacing
     
     if save_path:
         plt.savefig(save_path / 'holdings_analysis.png', dpi=300, bbox_inches='tight')
@@ -821,7 +821,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     table.set_fontsize(14)
     table.scale(1, 2.5)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    # constrained_layout used at figure creation; avoid tight_layout rect
     plt.show()
     
     return strategy_metrics

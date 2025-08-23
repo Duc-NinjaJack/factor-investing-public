@@ -214,7 +214,7 @@ ORDER BY date
 
 benchmark_data = pd.read_sql(benchmark_query, engine)
 benchmark_data['date'] = pd.to_datetime(benchmark_data['date']).dt.date
-benchmark_data['return'] = benchmark_data['close_price'].pct_change()
+benchmark_data['return'] = benchmark_data['close_price'].pct_change(fill_method=None)
 print(f"✅ Benchmark data: {len(benchmark_data)} records")
 
 # %% [markdown]
@@ -592,7 +592,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     strategy_metrics = calculate_performance_metrics(strategy_returns, benchmark_returns)
     benchmark_metrics = calculate_performance_metrics(benchmark_returns, benchmark_returns)
     
-    fig = plt.figure(figsize=(18, 26))
+    fig = plt.figure(constrained_layout=True, figsize=(18, 26))
     gs = fig.add_gridspec(5, 2, height_ratios=[1.2, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
     fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
 
@@ -701,7 +701,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     table.set_fontsize(14)
     table.scale(1, 2.5)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    # constrained_layout handles spacing
     plt.show()
 
 def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:
@@ -805,7 +805,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     benchmark_aligned = benchmark_equity.loc[common_dates]
     
     # Create the plot
-    plt.figure(figsize=(15, 10))
+    plt.figure(constrained_layout=True, figsize=(15, 10))
     
     # Main equity curve
     plt.subplot(2, 1, 1)
@@ -850,7 +850,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     
-    plt.tight_layout()
+    # constrained_layout handles spacing
     
     # Save the plot
     results_dir = Path("docs")
@@ -871,7 +871,7 @@ print("="*80)
 
 # Convert daily returns to strategy returns series
 strategy_returns = daily_returns.set_index('date')['portfolio_return']
-benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
+benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change(fill_method=None)
 
 # Create diagnostics DataFrame with allocation and drawdown information
 diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings', 'drawdown_status']].copy()

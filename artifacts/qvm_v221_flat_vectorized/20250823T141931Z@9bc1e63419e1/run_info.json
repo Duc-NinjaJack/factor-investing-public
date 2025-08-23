@@ -1,0 +1,22 @@
+{
+  "blas_threads": {
+    "MKL_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "blas_vendor": null,
+  "cpu_count": 6,
+  "data_snapshot": null,
+  "dtype": "float64",
+  "force_parallel": false,
+  "git_branch": "Minh",
+  "git_sha": "faed0c5",
+  "jobs": 4,
+  "num_rebalance_dates": 6,
+  "numpy": "2.2.4",
+  "pandas": "2.2.3",
+  "platform": "linux",
+  "python": "3.12.9 | packaged by Anaconda, Inc. | (main, Feb  6 2025, 18:56:27) [GCC 11.2.0]",
+  "seed": 42,
+  "wall_clock_ms": 831891.94
+}

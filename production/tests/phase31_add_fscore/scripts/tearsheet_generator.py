@@ -340,6 +340,15 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
             print("❌ CRITICAL ERROR: All data is empty, cannot generate tearsheet")
             return
     
+    # Ensure DatetimeIndex for downstream resampling/rolling plots where possible
+    for _s in (aligned_strategy_returns, aligned_benchmark_returns):
+        if not isinstance(_s.index, pd.DatetimeIndex):
+            try:
+                _s.index = pd.to_datetime(_s.index)
+            except Exception:
+                # Fallback: create a synthetic daily index starting at 2000-01-01
+                _s.index = pd.date_range(start='2000-01-01', periods=len(_s), freq='B')
+
     # CRITICAL: Check for extreme values after alignment
     if aligned_strategy_returns.min() < -0.99 or aligned_strategy_returns.max() > 2.0:
         print(f"⚠️ WARNING: Extreme aligned strategy return values: min={aligned_strategy_returns.min():.4f}, max={aligned_strategy_returns.max():.4f}")
@@ -370,8 +379,10 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     except Exception as e:
         print(f"⚠️ WARNING: Could not validate equity curve consistency: {e}")
     
-    fig = plt.figure(constrained_layout=True, figsize=(18, 30))  # Reduced height since removing daily returns plot
-    gs = fig.add_gridspec(6, 2, height_ratios=[1.5, 0.8, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
+    # Choose a more compact layout by default; further adjust if cash is 0%
+    fig_height = 22
+    fig = plt.figure(constrained_layout=True, figsize=(18, fig_height))
+    gs = fig.add_gridspec(6, 2, height_ratios=[1.5, 0.6, 0.9, 0.8, 0.6, 1.2], hspace=0.6, wspace=0.2)
     fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
 
     # 1. Cumulative Performance (Equity Curve)
@@ -413,23 +424,37 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
         # Convert dates to datetime for plotting
         cash_allocations['date'] = pd.to_datetime(cash_allocations['date'])
         cash_allocations = cash_allocations.sort_values('date')
-        
-        # Plot cash allocation percentage over time
-        ax2.plot(cash_allocations['date'], cash_allocations['cash_percentage'], 
-                color='#E74C3C', linewidth=2, marker='o', markersize=4)
-        ax2.fill_between(cash_allocations['date'], cash_allocations['cash_percentage'], 
-                        alpha=0.3, color='#E74C3C')
-        
-        # Add horizontal lines for reference
-        ax2.axhline(y=0, color='black', linestyle='-', alpha=0.3)
-        ax2.axhline(y=20, color='orange', linestyle='--', alpha=0.5, label='20% Cash')
-        ax2.axhline(y=40, color='red', linestyle='--', alpha=0.5, label='40% Cash')
-        
-        ax2.set_title('Cash Allocation Over Time', fontweight='bold')
-        ax2.set_ylabel('Cash Allocation (%)')
-        ax2.set_ylim(0, max(cash_allocations['cash_percentage'].max() * 1.1, 50))
-        ax2.legend(fontsize=10)
-        ax2.grid(True, alpha=0.3)
+        # Accept either 'cash_percentage' (0-100) or 'cash_allocation' (0-1)
+        if 'cash_percentage' not in cash_allocations.columns:
+            if 'cash_allocation' in cash_allocations.columns:
+                try:
+                    cash_allocations['cash_percentage'] = cash_allocations['cash_allocation'].astype(float) * 100.0
+                except Exception:
+                    cash_allocations['cash_percentage'] = 0.0
+            else:
+                cash_allocations['cash_percentage'] = 0.0
+
+        max_cash = float(cash_allocations['cash_percentage'].max()) if 'cash_percentage' in cash_allocations.columns else 0.0
+        if max_cash <= 1e-9:
+            # 0% cash throughout – keep the panel compact and avoid misleading reference lines
+            ax2.plot(cash_allocations['date'], cash_allocations['cash_percentage'], color='#7F8C8D', linewidth=1.5)
+            ax2.set_title('Cash Allocation Over Time (0%)', fontweight='bold')
+            ax2.set_ylabel('Cash Allocation (%)')
+            ax2.set_ylim(0, 1)
+            ax2.grid(True, alpha=0.2)
+        else:
+            # Plot cash allocation percentage over time
+            ax2.plot(cash_allocations['date'], cash_allocations['cash_percentage'], 
+                    color='#E74C3C', linewidth=2, marker='o', markersize=3)
+            ax2.fill_between(cash_allocations['date'], cash_allocations['cash_percentage'], 
+                            alpha=0.25, color='#E74C3C')
+            # Reference lines scaled to data range
+            ax2.axhline(y=0, color='black', linestyle='-', alpha=0.2)
+            y_max = max(5.0, max_cash * 1.2)
+            ax2.set_ylim(0, y_max)
+            ax2.set_title('Cash Allocation Over Time', fontweight='bold')
+            ax2.set_ylabel('Cash Allocation (%)')
+            ax2.grid(True, alpha=0.3)
         
         print(f"   📊 Cash allocation chart created")
     else:
@@ -695,11 +720,11 @@ def create_comparison_plots(strategy_with_risk: pd.Series,
     
     # 3. Cash Allocation Over Time
     ax3 = axes[1, 0]
-    
+
     # Debug: Check the structure of cash_allocations_df
     print(f"🔍 Cash allocations DataFrame columns: {cash_allocations_df.columns.tolist()}")
     print(f"🔍 Cash allocations DataFrame shape: {cash_allocations_df.shape}")
-    
+
     # Handle different possible column structures
     if 'date' in cash_allocations_df.columns:
         date_col = 'date'
@@ -707,18 +732,24 @@ def create_comparison_plots(strategy_with_risk: pd.Series,
         date_col = 'index'
     else:
         # If no date column, use the first column that's not cash_allocation
-        date_col = [col for col in cash_allocations_df.columns if col != 'cash_allocation'][0]
+        date_candidates = [col for col in cash_allocations_df.columns if col != 'cash_allocation']
+        date_col = date_candidates[0] if date_candidates else cash_allocations_df.columns[0]
         print(f"🔍 Using column '{date_col}' as date column")
-    
+
     # Convert cash_allocation to percentage for better visualization
     cash_values = cash_allocations_df['cash_allocation'] * 100
-    
-    ax3.plot(cash_allocations_df[date_col], cash_values, 
-             linewidth=2, color='purple', alpha=0.8)
-    ax3.fill_between(cash_allocations_df[date_col], cash_values, 
-                     alpha=0.3, color='purple')
-    
-    ax3.set_title('Dynamic Cash Allocation Over Time')
+
+    # Compact rendering when cash is 0% across the window
+    max_cash = float(cash_values.max()) if not cash_values.empty else 0.0
+    if max_cash <= 1e-9:
+        ax3.plot(cash_allocations_df[date_col], cash_values, linewidth=1.5, color='#7F8C8D')
+        ax3.set_ylim(0, 1)
+        ax3.set_title('Dynamic Cash Allocation Over Time (0%)')
+    else:
+        ax3.plot(cash_allocations_df[date_col], cash_values, linewidth=2, color='purple', alpha=0.8)
+        ax3.fill_between(cash_allocations_df[date_col], cash_values, alpha=0.3, color='purple')
+        ax3.set_ylim(0, max(5.0, max_cash * 1.2))
+
     ax3.set_xlabel('Date')
     ax3.set_ylabel('Cash Allocation %')
     ax3.grid(True, alpha=0.3)

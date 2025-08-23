@@ -307,7 +307,7 @@ def create_comparison_visualizations(comparison_df: pd.DataFrame):
     
     # Set up plotting style
     plt.style.use('seaborn-v0_8')
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12), constrained_layout=True)
     fig.suptitle('Enhanced Strategies Performance Comparison', fontsize=16, fontweight='bold')
     
     # 1. Sharpe Ratio Comparison
@@ -384,8 +384,7 @@ def create_comparison_visualizations(comparison_df: pd.DataFrame):
         ax4.text(width + 0.01, bar.get_y() + bar.get_height()/2.,
                  f'{value:.3f}', ha='left', va='center', fontweight='bold')
     
-    plt.tight_layout()
-    plt.savefig('insights/simple_strategy_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig('insights/simple_strategy_comparison.png', dpi=300)
     plt.show()
     
     print("✅ Visualizations created and saved.")

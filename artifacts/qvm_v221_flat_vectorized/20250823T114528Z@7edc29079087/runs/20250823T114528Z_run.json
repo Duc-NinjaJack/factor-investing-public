@@ -1,0 +1,208 @@
+{
+  "timestamp_utc": "20250823T114528Z",
+  "config_hash": "7edc29079087b60a32904fa777714b92cbbbc258666404392ccdbb5372202a62",
+  "git_commit": "faed0c58a64ae2309c064e3ef0fa64e0388364e8",
+  "calendar_hash": "f7c1f20873ce7cad2bcdddb634418aed367f445b87cc37c4a1920518abcf4733",
+  "seeds": {
+    "QVM_SEED": 42
+  },
+  "environment": {
+    "python": "3.12.9 | packaged by Anaconda, Inc. | (main, Feb  6 2025, 18:56:27) [GCC 11.2.0]",
+    "platform": "Linux-6.1.0-37-amd64-x86_64-with-glibc2.36",
+    "executable": "/home/raymond/miniconda/bin/python",
+    "env_flags": {
+      "DISABLE_DB_IN_CHILDREN": "0",
+      "PYTHONHASHSEED": null
+    }
+  },
+  "config": {
+    "strategy": {
+      "strategy": {
+        "name": "QVM 4-Pillar Flat Strategy (Golden)",
+        "version": "2.0.1",
+        "portfolio": {
+          "portfolio_size": 20,
+          "universe_size": 100,
+          "starting_capital": 10000000000
+        }
+      },
+      "factor_weights": {
+        "quality": 0.25,
+        "value": 0.25,
+        "momentum": 0.25,
+        "defensive": 0.25
+      },
+      "f_score": {
+        "use_vectorized_fscore_221": true,
+        "benchmark_both": false
+      },
+      "risk_management": {
+        "enabled": true,
+        "default_cash": 0.05,
+        "cash_allocation": {
+          "drawdown_5": 0.2,
+          "drawdown_10": 0.4,
+          "drawdown_15": 0.6,
+          "drawdown_20": 0.8,
+          "drawdown_25": 0.9
+        }
+      },
+      "normalization": {
+        "min_sector_size": "dynamic",
+        "robust": "median_mad",
+        "fallback": [
+          "sector",
+          "industry",
+          "market"
+        ]
+      },
+      "backtest": {
+        "active_window": {
+          "start": "2019-01-01",
+          "end": "2020-12-31"
+        },
+        "fundamentals": {
+          "reporting_lag_days": 75
+        },
+        "portfolio": {
+          "rebalance_frequency": "M"
+        },
+        "selection": {
+          "enable_constraints": false
+        },
+        "risk_overlay": {
+          "mode": "drawdown_based",
+          "volatility_target": 0.11
+        },
+        "transaction_cost_bps": 10,
+        "slippage_bps": 0,
+        "parallel": {
+          "enabled": true,
+          "warmup_months": 3
+        },
+        "output": {
+          "export_parquet": false
+        }
+      }
+    },
+    "backtest": {
+      "backtest_windows": {
+        "FULL_2016_2025": {
+          "start": "2016-01-01",
+          "end": "2025-12-31"
+        },
+        "LIQUID_2018_2025": {
+          "start": "2018-01-01",
+          "end": "2025-12-31"
+        },
+        "POST_DERIV_2020_2025": {
+          "start": "2020-01-01",
+          "end": "2025-12-31"
+        },
+        "ADAPTIVE_2016_2025": {
+          "start": "2016-01-01",
+          "end": "2025-12-31"
+        }
+      },
+      "active_window": "LIQUID_2018_2025",
+      "ic_hurdles": {
+        "annual_return_net": 0.15,
+        "annual_volatility": 0.15,
+        "sharpe_ratio_net": 1.0,
+        "max_drawdown": -0.35,
+        "beta_vs_vnindex": 0.75,
+        "information_ratio": 0.8
+      },
+      "rebalance": {
+        "anchor": "first_trading_day",
+        "lag_days": 0,
+        "min_holding_months": 1
+      },
+      "fundamentals": {
+        "reporting_lag_days": 60
+      },
+      "transaction_cost_bps": 10.0,
+      "slippage_bps": 0.0,
+      "universe": {
+        "method": "liquid_universe",
+        "top_n_stocks": 200,
+        "min_adtv_vnd": 10000000000,
+        "min_adtv_pct_mcap": 0.0004,
+        "sector_concentration_limit": 0.2,
+        "foreign_ownership_buffer": 0.03
+      },
+      "portfolio": {
+        "base_leverage": 1.0,
+        "max_leverage": 1.5,
+        "rebalance_frequency": "M",
+        "concentration_limit": 0.2,
+        "assumed_notional_vnd": 200000000000
+      },
+      "parallel": {
+        "enabled": true,
+        "backend": "ray",
+        "start_method": "spawn",
+        "chunk_size": "auto"
+      },
+      "cost_model": {
+        "base_cost_bps": 3,
+        "impact_coefficient": 0.15,
+        "max_participation_rate": 0.05
+      },
+      "rebalance_anchor_policy": "nearest:3d",
+      "benchmark": {
+        "primary": "VN_INDEX",
+        "secondary": "VNFIN_LEAD"
+      },
+      "factor_optimization": {
+        "method": "walk_forward",
+        "fit_window_months": 24,
+        "lock_window_months": 6,
+        "priors": {
+          "value_min": 0.3,
+          "quality_max": 0.25,
+          "momentum_min": 0.25,
+          "reversal_max": 0.1
+        },
+        "dirichlet_lambda": 0.05,
+        "max_weight_drift_per_period": 0.2
+      },
+      "risk_overlay": {
+        "volatility_target": 0.1,
+        "regime_vol_threshold": 0.25,
+        "regime_dd_threshold": -0.1,
+        "regime_lookback_days": 63,
+        "regime_cooldown_days": 5,
+        "method": "drawdown_based"
+      },
+      "normalization": {
+        "min_sector_size": "dynamic",
+        "robust": "median_mad",
+        "fallback": [
+          "sector",
+          "industry",
+          "market"
+        ]
+      },
+      "output": {
+        "save_factor_weights": true,
+        "save_portfolio_history": true,
+        "save_cost_breakdown": true,
+        "generate_tearsheet": true,
+        "export_metrics_csv": true
+      }
+    }
+  },
+  "extra": {
+    "normalization": {
+      "min_sector_size": "dynamic",
+      "robust": "median_mad",
+      "fallback": [
+        "sector",
+        "industry",
+        "market"
+      ],
+      "james_stein_shrinkage_for_thin_groups": true
+    }
+  }
+}

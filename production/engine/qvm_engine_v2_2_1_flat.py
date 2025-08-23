@@ -138,6 +138,21 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
         self.logger.info(f"BANKING TABLE FIX: Using {self.intermediary_tables['banking']} for banking data")
         self.logger.info("="*60)
 
+        # One-time normalization policy log (inherited from v2.0.1 flat)
+        try:
+            norm_cfg = getattr(self, 'normalization_config', {}) or {}
+            fallback = norm_cfg.get('fallback', [])
+            min_size = norm_cfg.get('min_sector_size', 'dynamic')
+            robust = norm_cfg.get('robust', 'median_mad')
+            self.logger.info(
+                "Normalization policy (init): fallback=%s | min_sector_size=%s | robust=%s",
+                ','.join(fallback) if isinstance(fallback, list) else str(fallback),
+                str(min_size),
+                str(robust)
+            )
+        except Exception:
+            pass
+
         # Feature flag: enable vectorized F-Score path for v2.2.1 (config-only)
         try:
             self.use_vectorized_fscore_221 = bool(
@@ -480,15 +495,19 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 FROM intermediary_calculations_enhanced 
                 WHERE year = :lagged_year AND quarter = :lagged_quarter 
                 AND ticker IN :tickers AND has_full_ttm = 1
+                ORDER BY ticker
             """)
             fcf_data = pd.read_sql(fcf_query, self.engine, params={
                 'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 'tickers': tuple(eligible_tickers)
             })
+            if not fcf_data.empty and 'ticker' in fcf_data.columns:
+                fcf_data = fcf_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             # LOOK-AHEAD BIAS FIX: Get market cap from current quarter
             market_query = text("""
                 SELECT ticker, market_cap FROM vcsc_daily_data_complete 
                 WHERE trading_date = :analysis_date AND ticker IN :tickers AND market_cap > 0
+                ORDER BY ticker
             """)
             market_data = pd.read_sql(market_query, self.engine, params={
                 'analysis_date': analysis_date, 'tickers': tuple(eligible_tickers)
@@ -511,14 +530,43 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                     FROM vcsc_daily_data_complete v
                     JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
                     WHERE v.market_cap > 0
+                    ORDER BY v.ticker
                 """)
                 market_data = pd.read_sql(fallback_market, self.engine, params={
                     'analysis_date': analysis_date, 'tickers': tuple(eligible_tickers)
                 })
+                if not market_data.empty and 'ticker' in market_data.columns:
+                    market_data = market_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
 
             # SMART FCF CALCULATION: Use actual Capex when available, fall back to CFI proxy
             fcf_yields = {}
-            if not fcf_data.empty and not market_data.empty:
+            # Optional features utils path (opt-in, no default behavior change)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_fcf_yield', False))
+            except Exception:
+                use_utils = False
+
+            if use_utils and (not fcf_data.empty and not market_data.empty):
+                try:
+                    from production.utils.features import prepare_fcf_yield_raw
+                    self.logger.info("Features utils enabled: prepare_fcf_yield_raw (opt-in)")
+                    raw = prepare_fcf_yield_raw(
+                        fundamentals=fcf_data,
+                        market_caps=market_data,
+                        use_actual_capex_when_available=True,
+                        logger=self.logger,
+                    )
+                    # Optional: filter by data availability similar to engine path
+                    if hasattr(self, '_validate_data_availability'):
+                        filtered = {t: v for t, v in raw.to_dict().items() if self._validate_data_availability(t, analysis_date, 'financial')}
+                        fcf_yields = filtered
+                    else:
+                        fcf_yields = raw.to_dict()
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils FCF path failed, using engine implementation: {_ue}")
+
+            if not fcf_data.empty and not market_data.empty and not fcf_yields:
                 combined = pd.merge(fcf_data, market_data, on='ticker', how='inner')
                 if not combined.empty:
                     combined = combined.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
@@ -986,11 +1034,14 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 FROM intermediary_calculations_enhanced
                 WHERE year = :lagged_year AND quarter = :lagged_quarter 
                 AND ticker IN :universe AND has_full_ttm = 1
+                ORDER BY ticker
             """)
             
             fundamentals = pd.read_sql(query, self.engine, params={
                 'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 'universe': tuple(universe)
             })
+            if not fundamentals.empty and 'ticker' in fundamentals.columns:
+                fundamentals = fundamentals.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             self.logger.info(f"📊 Loaded lagged fundamentals: {len(fundamentals)} records from {lagged_year}Q{lagged_quarter}")
             return fundamentals
@@ -1016,6 +1067,7 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 FROM vcsc_daily_data_complete
                 WHERE trading_date = :analysis_date 
                 AND ticker IN :universe AND market_cap > 0
+                ORDER BY ticker
             """)
             
             market_data = pd.read_sql(query, self.engine, params={
@@ -1039,10 +1091,13 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                     FROM vcsc_daily_data_complete v
                     JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
                     WHERE v.market_cap > 0
+                    ORDER BY v.ticker
                 """)
                 market_data = pd.read_sql(fallback_query, self.engine, params={
                     'analysis_date': analysis_date, 'universe': tuple(universe)
                 })
+            if not market_data.empty and 'ticker' in market_data.columns:
+                market_data = market_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             self.logger.info(f"📊 Loaded current market data: {len(market_data)} records from {current_year}Q{current_quarter}")
             return market_data
@@ -1195,6 +1250,8 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             
             if quality_data.empty:
                 return {}
+            if 'ticker' in quality_data.columns:
+                quality_data = quality_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             # Calculate quality metrics
             quality_factors = {}
@@ -1220,6 +1277,8 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 if metric in quality_data.columns:
                     # Merge with sector mapping
                     merged_data = pd.merge(quality_data[['ticker', metric]], sector_map.reset_index(), on='ticker', how='inner')
+                    if not merged_data.empty:
+                        merged_data = merged_data.sort_values(['sector', 'ticker'], kind='mergesort').reset_index(drop=True)
                     
                     # Apply sector-neutral normalization
                     z_scores = self.calculate_sector_neutral_zscore(merged_data, metric, 'sector')
@@ -1263,12 +1322,15 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 FROM intermediary_calculations_enhanced
                 WHERE year = :lagged_year AND quarter = :lagged_quarter 
                 AND ticker IN :tickers AND has_full_ttm = 1
+                ORDER BY ticker
             """)
             
             financial_data = pd.read_sql(financial_query, self.engine, params={
                 'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 
                 'tickers': tuple(data['ticker'].unique())
             })
+            if not financial_data.empty and 'ticker' in financial_data.columns:
+                financial_data = financial_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
             
             # Get current market data
             market_query = text("""
@@ -1276,6 +1338,7 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 FROM vcsc_daily_data_complete
                 WHERE trading_date = :analysis_date 
                 AND ticker IN :tickers AND market_cap > 0
+                ORDER BY ticker
             """)
             
             market_data = pd.read_sql(market_query, self.engine, params={
@@ -1299,10 +1362,13 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                     FROM vcsc_daily_data_complete v
                     JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
                     WHERE v.market_cap > 0
+                    ORDER BY v.ticker
                 """)
                 market_data = pd.read_sql(fallback_market, self.engine, params={
                     'analysis_date': analysis_date, 'tickers': tuple(data['ticker'].unique())
                 })
+                if not market_data.empty and 'ticker' in market_data.columns:
+                    market_data = market_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
 
             if financial_data.empty or market_data.empty:
                 return {}
@@ -1462,6 +1528,38 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 return {}
             prices = prices.sort_values(['ticker', 'trading_date'], kind='mergesort').reset_index(drop=True)
 
+            # Optional features utils path (opt-in, no default behavior change)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_lowvol', False))
+            except Exception:
+                use_utils = False
+
+            if use_utils:
+                try:
+                    from production.utils.features import compute_low_volatility_raw, make_normalization_frame
+                    self.logger.info("Features utils enabled: compute_low_volatility_raw (opt-in)")
+                    prices_df = prices.rename(columns={'trading_date': 'date', 'close_price': 'price'})[['date', 'ticker', 'price']].copy()
+                    raw = compute_low_volatility_raw(
+                        prices=prices_df,
+                        analysis_date=analysis_date,
+                        universe=universe,
+                        lookback_days=63,
+                        logger=self.logger,
+                    )
+                    if raw is None or raw.empty:
+                        return {}
+                    sec_map = sector_map.reset_index()[['ticker', 'sector']].set_index('ticker')['sector'].to_dict()
+                    norm_df = make_normalization_frame(raw, sec_map, 'low_volatility_raw', 'sector')
+                    if norm_df.empty:
+                        return {}
+                    z = self.calculate_sector_neutral_zscore(norm_df, 'low_volatility_raw', 'sector')
+                    factor_series = pd.Series(z.values, index=norm_df['ticker'], name='low_volatility_z')
+                    self.logger.info(f"✅ Low volatility factors calculated (features utils) for {len(factor_series)} tickers")
+                    return {'low_volatility_z': factor_series}
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils low-vol path failed, using engine implementation: {_ue}")
+
             # Vectorized daily returns per ticker
             prices['ret'] = prices.groupby('ticker')['close_price'].pct_change(fill_method=None)
             # Compute per-ticker daily volatility then annualize
@@ -1558,11 +1656,24 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                     for t, s in ss.items():
                         f_scores[t] = {'raw': s, 'max': 5}
             
-            # Normalize F-Scores
-            normalized_scores = {
-                t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 
-                for t, v in f_scores.items()
-            }
+            # Normalize F-Scores (opt-in features utils)
+            use_utils = False
+            try:
+                use_utils = bool(self.factor_config.get('features', {}).get('use_utils_fscore', False))
+            except Exception:
+                use_utils = False
+
+            if use_utils:
+                try:
+                    from production.utils.features import normalize_f_score_to_unit
+                    self.logger.info("Features utils enabled: normalize_f_score_to_unit (opt-in)")
+                    norm_series = normalize_f_score_to_unit({t: (v['raw'], v['max']) for t, v in f_scores.items()}, logger=self.logger)
+                    normalized_scores = norm_series.to_dict()
+                except Exception as _ue:
+                    self.logger.warning(f"Features utils F-Score normalization failed, using engine implementation: {_ue}")
+                    normalized_scores = {t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 for t, v in f_scores.items()}
+            else:
+                normalized_scores = {t: v['raw'] / v['max'] if v['max'] > 0 else 0.0 for t, v in f_scores.items()}
             
             if not normalized_scores:
                 return {}
@@ -1635,12 +1746,15 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             LEFT JOIN previous_fundamentals pf ON cf.ticker = pf.ticker
             LEFT JOIN current_share_data csd ON cf.ticker = csd.ticker
             LEFT JOIN previous_share_data psd ON cf.ticker = psd.ticker
+            ORDER BY cf.ticker
         """)
         
         f_score_data = pd.read_sql(query, self.engine, params={
             'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 'prev_year': prev_year,
             'analysis_date': analysis_date, 'tickers': tuple(tickers)
         })
+        if not f_score_data.empty and 'ticker' in f_score_data.columns:
+            f_score_data = f_score_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
         
         f_scores = {}
         for _, row in f_score_data.iterrows():
@@ -1702,11 +1816,14 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             SELECT cb.*, pb.prev_netprofit_ttm, pb.prev_avgtotalassets, pb.prev_nii_ttm, pb.prev_avgearningassets,
                    pb.prev_totaloperatingincome_ttm, pb.prev_operatingexpenses_ttm, pb.prev_shareholdersequity, pb.prev_customerdeposits
             FROM current_banking cb LEFT JOIN previous_banking pb ON cb.ticker = pb.ticker
+            ORDER BY cb.ticker
         """)
         
         banking_data = pd.read_sql(query, self.engine, params={
             'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 'prev_year': prev_year, 'tickers': tuple(tickers)
         })
+        if not banking_data.empty and 'ticker' in banking_data.columns:
+            banking_data = banking_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
         
         f_scores = {}
         for _, row in banking_data.iterrows():
@@ -1779,11 +1896,14 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 ps.prev_OperatingExpenses_TTM
             FROM current_securities cs
             LEFT JOIN previous_securities ps ON cs.ticker = ps.ticker
+            ORDER BY cs.ticker
         """)
         
         securities_data = pd.read_sql(query, self.engine, params={
             'lagged_year': lagged_year, 'lagged_quarter': lagged_quarter, 'prev_year': prev_year, 'tickers': tuple(tickers)
         })
+        if not securities_data.empty and 'ticker' in securities_data.columns:
+            securities_data = securities_data.sort_values(['ticker'], kind='mergesort').reset_index(drop=True)
         
         f_scores = {}
         for _, row in securities_data.iterrows():

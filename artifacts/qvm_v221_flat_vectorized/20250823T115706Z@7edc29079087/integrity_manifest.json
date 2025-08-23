@@ -1,0 +1,54 @@
+{
+  "backtest_config.json": {
+    "bytes": 2468,
+    "sha256": "db08acc11a2c68f76cf24c76fc3523dc18527f2d5f508d644b84be844ecec4c2"
+  },
+  "benchmark_returns.csv": {
+    "bytes": 61549,
+    "sha256": "747f676f7071674b79677cf3a1a3846d763f34d771b126638784e4c65ae6e52b"
+  },
+  "diagnostics.csv": {
+    "bytes": 2549,
+    "sha256": "a72b5f52012dbbcd8697b744e8537a50d39cfdb6a684a7d15cd16cf59b1ab277"
+  },
+  "environment_manifest.json": {
+    "bytes": 163,
+    "sha256": "16b5c8cb999588ecd216889aca69d8693d3a6ac1bab1b9504174ba2c87418754"
+  },
+  "monthly_holdings.csv": {
+    "bytes": 2412,
+    "sha256": "b4a5980ce8e13a0242a4eb6f7db8420401ea69a7048fde69ff3ec8e05984e045"
+  },
+  "no_risk_returns.csv": {
+    "bytes": 60176,
+    "sha256": "77524ebdab3b3cd581bb565492f07c44255cab92839b973c879426a95176c626"
+  },
+  "portfolio_hashes.txt": {
+    "bytes": 608,
+    "sha256": "d9ccb81adb62828137b3d96e2cad5452abf20acb0b0bea36c6bd0a7fec6f0a06"
+  },
+  "run_info.json": {
+    "bytes": 99,
+    "sha256": "363ecd2d18ae987d09a65bf97ccb9f659b4ed88374549466b646372b6deef386"
+  },
+  "strategy_config.json": {
+    "bytes": 1368,
+    "sha256": "93727a0742ef209efaf3adbd00b0a67a159a968a8e3ffe8cd61d6e7185fb8c29"
+  },
+  "timings.csv": {
+    "bytes": 2791,
+    "sha256": "dd6065a1dcb1b9445a1cfdb5d17d8b83953b21f3bb16b637501d7ad6a5004ec2"
+  },
+  "universe_diagnostics.csv": {
+    "bytes": 839,
+    "sha256": "6d797e5fae24a9dcbc4e787609072c0f6b5ceea12de3c91fe52579f4ff80ebe2"
+  },
+  "with_risk_cash.csv": {
+    "bytes": 28213,
+    "sha256": "c021a67a25afc42886cc930fec37e6059152e839dbda5a424f9c3569cbfd0e55"
+  },
+  "with_risk_returns.csv": {
+    "bytes": 61508,
+    "sha256": "afb91ef658dce3458a55b841c1ffe5a68c185e7ba125102dc9b21c0a1bfd00a7"
+  }
+}

@@ -214,7 +214,7 @@ ORDER BY date
 
 benchmark_data = pd.read_sql(benchmark_query, engine)
 benchmark_data['date'] = pd.to_datetime(benchmark_data['date']).dt.date
-benchmark_data['return'] = benchmark_data['close_price'].pct_change()
+benchmark_data['return'] = benchmark_data['close_price'].pct_change(fill_method=None)
 print(f"✅ Benchmark data: {len(benchmark_data)} records")
 
 # %% [markdown]
@@ -340,7 +340,7 @@ def calculate_corrected_returns(holdings_df, price_data, benchmark_data, config,
                     period_prices = price_matrix.loc[period_dates]
                     
                     # Calculate daily returns (pct_change)
-                    period_returns = period_prices.pct_change()
+                    period_returns = period_prices.pct_change(fill_method=None)
                     
                     # Calculate portfolio daily returns
                     for daily_date in period_returns.index[1:]:  # Skip first date (no return)
@@ -499,7 +499,7 @@ def calculate_performance_metrics(portfolio_values, daily_returns, benchmark_dat
     
     # Merge with benchmark data
     daily_returns = daily_returns.merge(benchmark_data, on='date', how='left')
-    daily_returns['benchmark_return'] = daily_returns['close_price'].pct_change()
+    daily_returns['benchmark_return'] = daily_returns['close_price'].pct_change(fill_method=None)
     daily_returns = daily_returns.dropna(subset=['portfolio_return', 'benchmark_return'])
     
     if daily_returns.empty:
@@ -592,7 +592,7 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     strategy_metrics = calculate_performance_metrics(strategy_returns, benchmark_returns)
     benchmark_metrics = calculate_performance_metrics(benchmark_returns, benchmark_returns)
     
-    fig = plt.figure(figsize=(18, 26))
+    fig = plt.figure(figsize=(18, 26), constrained_layout=True)
     gs = fig.add_gridspec(5, 2, height_ratios=[1.2, 0.8, 0.8, 0.8, 1.2], hspace=0.7, wspace=0.2)
     fig.suptitle(title, fontsize=20, fontweight='bold', color='#2C3E50')
 
@@ -701,7 +701,9 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     table.set_fontsize(14)
     table.scale(1, 2.5)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    # Use constrained layout at figure creation for spacing
+    # (call sites creating figures should set constrained_layout=True)
+    # Keep rect handling removed to avoid conflicting with constrained layout
     plt.show()
 
 def calculate_performance_metrics(returns: pd.Series, benchmark: pd.Series, periods_per_year: int = 252) -> dict:
@@ -791,7 +793,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     
     # Calculate cumulative returns for benchmark
     benchmark_data = benchmark_data.sort_values('date')
-    benchmark_returns = benchmark_data['close_price'].pct_change().dropna()
+    benchmark_returns = benchmark_data['close_price'].pct_change(fill_method=None).dropna()
     benchmark_cumulative = (1 + benchmark_returns).cumprod()
     benchmark_equity = config['initial_capital'] * benchmark_cumulative
     
@@ -805,7 +807,7 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     benchmark_aligned = benchmark_equity.loc[common_dates]
     
     # Create the plot
-    plt.figure(figsize=(15, 10))
+    plt.figure(figsize=(15, 10), constrained_layout=True)
     
     # Main equity curve
     plt.subplot(2, 1, 1)
@@ -850,12 +852,12 @@ def create_equity_curve(daily_returns, benchmark_data, performance_metrics, conf
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     
-    plt.tight_layout()
+    # Use constrained_layout at figure creation; avoid tight_layout here
     
     # Save the plot
     results_dir = Path("docs")
     filenames = get_output_filenames("04b", "moving_avg")
-    plt.savefig(results_dir / filenames['equity_curve'], dpi=300, bbox_inches='tight')
+    plt.savefig(results_dir / filenames['equity_curve'], dpi=300)
     plt.show()
     
     print(f"   - {filenames['equity_curve']}: Equity curve visualization saved")
@@ -871,7 +873,7 @@ print("="*80)
 
 # Convert daily returns to strategy returns series
 strategy_returns = daily_returns.set_index('date')['portfolio_return']
-benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change()
+benchmark_returns = benchmark_data.set_index('date')['close_price'].pct_change(fill_method=None)
 
 # Create diagnostics DataFrame with allocation and drawdown information
 diagnostics = portfolio_values[['date', 'allocation', 'valid_holdings', 'drawdown_status']].copy()

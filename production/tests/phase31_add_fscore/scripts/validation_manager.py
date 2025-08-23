@@ -18,15 +18,30 @@ from typing import Dict, Tuple, Optional, Literal, Union
 from datetime import datetime, date
 
 try:
-    from pydantic import BaseModel, Field, validator
-except Exception:  # pragma: no cover - pydantic optional at import time
-    BaseModel = object  # type: ignore
-    def Field(*args, **kwargs):  # type: ignore
-        return None
-    def validator(*args, **kwargs):  # type: ignore
-        def _wrap(fn):
-            return fn
-        return _wrap
+    # Prefer Pydantic v1 shim under Pydantic v2
+    from pydantic.v1 import BaseModel, Field, validator
+    PydanticV = 1
+    ConfigDict = None  # type: ignore
+except Exception:
+    try:
+        # Fallback to native import (works on Pydantic v2 or v1)
+        from pydantic import BaseModel, Field, validator  # type: ignore
+        try:
+            from pydantic import ConfigDict  # type: ignore
+            PydanticV = 2
+        except Exception:
+            ConfigDict = None  # type: ignore
+            PydanticV = 1
+    except Exception:  # pragma: no cover - pydantic optional at import time
+        BaseModel = object  # type: ignore
+        def Field(*args, **kwargs):  # type: ignore
+            return None
+        def validator(*args, **kwargs):  # type: ignore
+            def _wrap(fn):
+                return fn
+            return _wrap
+        ConfigDict = None  # type: ignore
+        PydanticV = 1
 
 
 def validate_strategy_config(strategy_config: Dict, logger: logging.Logger) -> bool:
@@ -238,9 +253,18 @@ def validate_factor_architecture(factor_weights: Dict[str, float]) -> bool:
 class RebalanceConfig(BaseModel):
     anchor: Literal['first_trading_day', 'mid_month', 'quarter_lag'] = 'first_trading_day'
     lag_days: int = Field(0, ge=0)
+    # Preserve any extra keys (e.g., min_holding_months)
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra='allow')  # type: ignore
+    class Config:  # pydantic v1
+        extra = 'allow'  # type: ignore
 
 class FundamentalsConfig(BaseModel):
     reporting_lag_days: Optional[int] = Field(None, ge=0)
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra='allow')  # type: ignore
+    class Config:
+        extra = 'allow'  # type: ignore
 
 class BacktestWindow(BaseModel):
     start: date
@@ -261,6 +285,11 @@ class BacktestConfigModel(BaseModel):
     fundamentals: Optional[FundamentalsConfig] = None
     transaction_cost_bps: float = Field(10.0, ge=0.0)
     slippage_bps: float = Field(0.0, ge=0.0)
+    # Allow extra keys at the top-level (e.g., universe, cost_model, portfolio, risk_overlay, normalization, rebalance_anchor_policy)
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra='allow')  # type: ignore
+    class Config:  # pydantic v1
+        extra = 'allow'  # type: ignore
 
     @validator('active_window')
     def _validate_active_window(cls, v):  # type: ignore
