@@ -1,0 +1,84 @@
+{
+  "active_window": "FULL_2016_2025",
+  "backtest_windows": {
+    "ADAPTIVE_2016_2025": {
+      "description": "Full period with adaptive liquidity weighting",
+      "end": "2025-12-31",
+      "start": "2016-01-01"
+    },
+    "FULL_2016_2025": {
+      "description": "Full historical period including pre-liquidity era",
+      "end": "2025-12-31",
+      "start": "2016-01-01"
+    },
+    "LIQUID_2018_2025": {
+      "description": "Post-IPO spike, includes 2018 market stress",
+      "end": "2025-12-31",
+      "start": "2018-01-01"
+    },
+    "POST_DERIV_2020_2025": {
+      "description": "High-liquidity era post VN30 derivatives launch",
+      "end": "2025-12-31",
+      "start": "2020-01-01"
+    }
+  },
+  "benchmark": {
+    "primary": "VN_INDEX",
+    "secondary": "VNFIN_LEAD"
+  },
+  "cost_model": {
+    "base_cost_bps": 3,
+    "impact_coefficient": 0.15,
+    "max_participation_rate": 0.05
+  },
+  "factor_optimization": {
+    "dirichlet_lambda": 0.05,
+    "fit_window_months": 24,
+    "lock_window_months": 6,
+    "max_weight_drift_per_period": 0.2,
+    "method": "walk_forward",
+    "priors": {
+      "momentum_min": 0.25,
+      "quality_max": 0.25,
+      "reversal_max": 0.1,
+      "value_min": 0.3
+    }
+  },
+  "ic_hurdles": {
+    "annual_return_net": 0.15,
+    "annual_volatility": 0.15,
+    "beta_vs_vnindex": 0.75,
+    "information_ratio": 0.8,
+    "max_drawdown": -0.35,
+    "sharpe_ratio_net": 1.0
+  },
+  "output": {
+    "export_metrics_csv": true,
+    "generate_tearsheet": true,
+    "save_cost_breakdown": true,
+    "save_factor_weights": true,
+    "save_portfolio_history": true
+  },
+  "portfolio": {
+    "base_leverage": 1.0,
+    "concentration_limit": 0.2,
+    "max_leverage": 1.5,
+    "rebalance_frequency": "M"
+  },
+  "risk_overlay": {
+    "method": "drawdown_based",
+    "regime_cooldown_days": 5,
+    "regime_dd_threshold": -0.1,
+    "regime_lookback_days": 63,
+    "regime_vol_threshold": 0.25,
+    "volatility_target": 0.15
+  },
+  "universe": {
+    "foreign_ownership_buffer": 0.03,
+    "method": "liquid_universe",
+    "min_adtv_pct_mcap": 0.0004,
+    "min_adtv_vnd": 10000000000,
+    "sector_concentration_limit": 0.25,
+    "top_n_stocks": 20
+  }
+}

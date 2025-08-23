@@ -14,8 +14,19 @@ Created: August 17, 2025
 """
 
 import logging
-from typing import Dict, Tuple, Optional
-from datetime import datetime
+from typing import Dict, Tuple, Optional, Literal, Union
+from datetime import datetime, date
+
+try:
+    from pydantic import BaseModel, Field, validator
+except Exception:  # pragma: no cover - pydantic optional at import time
+    BaseModel = object  # type: ignore
+    def Field(*args, **kwargs):  # type: ignore
+        return None
+    def validator(*args, **kwargs):  # type: ignore
+        def _wrap(fn):
+            return fn
+        return _wrap
 
 
 def validate_strategy_config(strategy_config: Dict, logger: logging.Logger) -> bool:
@@ -113,8 +124,14 @@ def _validate_factor_weights(strategy_config: Dict, logger: logging.Logger) -> N
                 logger.error(f"     {pillar}: 0.25")
             raise ValueError(f"Missing factor weights for pillars: {missing_pillars}")
 
-        # Validate weights sum to 1.0
-        total_weight = sum(factor_weights.values())
+        # Validate weights are numeric and sum to 1.0
+        try:
+            numeric_weights = {k: float(v) for k, v in factor_weights.items()}
+        except Exception:
+            logger.error("❌ Factor weights must be numeric values")
+            raise ValueError("Non-numeric factor weight detected")
+
+        total_weight = sum(numeric_weights.values())
 
         if abs(total_weight - 1.0) > 0.001:  # Allow small floating point precision errors
             logger.error(f"❌ Factor weights do not sum to 1.0: {total_weight:.6f}")
@@ -124,7 +141,7 @@ def _validate_factor_weights(strategy_config: Dict, logger: logging.Logger) -> N
 
         # All validations passed
         logger.info(f"✅ Factor weights validation passed: {total_weight:.6f}")
-        logger.info(f"   Weights: {factor_weights}")
+        logger.info(f"   Weights: {numeric_weights}")
 
     except Exception as e:
         logger.error(f"❌ Factor weights validation failed: {e}")
@@ -212,3 +229,75 @@ def validate_factor_architecture(factor_weights: Dict[str, float]) -> bool:
         raise ValueError(f"Missing factor weights for pillars: {missing_pillars}")
     
     return True
+
+
+# -----------------------------
+# Backtest config schema (Pydantic)
+# -----------------------------
+
+class RebalanceConfig(BaseModel):
+    anchor: Literal['first_trading_day', 'mid_month', 'quarter_lag'] = 'first_trading_day'
+    lag_days: int = Field(0, ge=0)
+
+class FundamentalsConfig(BaseModel):
+    reporting_lag_days: Optional[int] = Field(None, ge=0)
+
+class BacktestWindow(BaseModel):
+    start: date
+    end: date
+
+    @validator('end')
+    def _end_not_before_start(cls, v, values):  # type: ignore
+        start = values.get('start')
+        if start and v < start:
+            raise ValueError('end must be on/after start')
+        return v
+
+class BacktestConfigModel(BaseModel):
+    backtest_windows: Dict[str, BacktestWindow]
+    active_window: Union[str, Dict[str, date]]
+    ic_hurdles: Optional[Dict[str, float]] = None
+    rebalance: Optional[RebalanceConfig] = None
+    fundamentals: Optional[FundamentalsConfig] = None
+    transaction_cost_bps: float = Field(10.0, ge=0.0)
+    slippage_bps: float = Field(0.0, ge=0.0)
+
+    @validator('active_window')
+    def _validate_active_window(cls, v):  # type: ignore
+        if isinstance(v, dict):
+            if 'start' not in v or 'end' not in v:
+                raise ValueError("active_window dict requires 'start' and 'end'")
+        elif not isinstance(v, str):
+            raise ValueError('active_window must be str or dict with start/end')
+        return v
+
+
+def validate_backtest_config(backtest_config: Dict, logger: logging.Logger) -> Dict:
+    """Validate and normalize backtest configuration using a strict schema.
+
+    Returns the normalized config dict.
+    """
+    try:
+        logger.debug("🔍 Validating backtest configuration (schema)…")
+        # Pydantic v1/v2 compatibility: prefer model_validate/model_dump when available
+        if hasattr(BacktestConfigModel, 'model_validate'):
+            model = BacktestConfigModel.model_validate(backtest_config)  # type: ignore[attr-defined]
+        else:
+            model = BacktestConfigModel.parse_obj(backtest_config)  # type: ignore[attr-defined]
+
+        # Normalize to JSON-serializable python-native dict
+        if hasattr(model, 'model_dump'):
+            # Pydantic v2: ensure JSON-friendly types (e.g., dates -> str)
+            normalized: Dict = model.model_dump(mode='json')  # type: ignore[assignment]
+        elif hasattr(model, 'json'):
+            # Pydantic v1: serialize to JSON then parse back to dict
+            import json as _json
+            normalized = _json.loads(model.json())  # type: ignore[attr-defined]
+        else:
+            # Fallback: best-effort plain dict
+            normalized = model.dict()  # type: ignore[assignment]
+        logger.info("✅ Backtest configuration validation completed successfully")
+        return normalized
+    except Exception as e:
+        logger.error(f"❌ Backtest configuration validation failed: {e}")
+        raise

@@ -92,6 +92,7 @@ def apply_transaction_costs(prev_weights: pd.Series, next_weights: pd.Series, bp
 class BacktestConfig:
     transaction_cost_bps: float = 10.0
     portfolio_size: int = 20
+    slippage_bps: float = 0.0
 
 
 def run_daily_pnl(
@@ -100,7 +101,7 @@ def run_daily_pnl(
     monthly_holdings: Dict[pd.Timestamp, List[str]],
     backtest_config: BacktestConfig,
     risk_overlay_fn=None,
-    benchmark_returns: Optional[pd.Series] = None,
+    benchmark_prices: Optional[pd.Series] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
 
@@ -128,7 +129,8 @@ def run_daily_pnl(
             current_weights = equal_weight_positions(tickers_today, backtest_config.portfolio_size)
 
             # Apply costs for changing weights
-            cost = apply_transaction_costs(current_weights, current_weights, backtest_config.transaction_cost_bps) if i == 0 else apply_transaction_costs(prev_weights, current_weights, backtest_config.transaction_cost_bps)
+            cost_bps = backtest_config.transaction_cost_bps + backtest_config.slippage_bps
+            cost = apply_transaction_costs(current_weights, current_weights, cost_bps) if i == 0 else apply_transaction_costs(prev_weights, current_weights, cost_bps)
         else:
             cost = 0.0
 
@@ -136,11 +138,11 @@ def run_daily_pnl(
         gross = float((current_weights * daily_returns.loc[day].reindex(current_weights.index).fillna(0.0)).sum()) if not current_weights.empty else 0.0
         net = gross - cost
 
-        # Risk overlay scaling (uses benchmark if provided)
+        # Risk overlay scaling (uses benchmark prices if provided)
         cash = 0.0
-        if risk_overlay_fn is not None and benchmark_returns is not None:
+        if risk_overlay_fn is not None and benchmark_prices is not None:
             try:
-                cash = float(risk_overlay_fn(benchmark_returns, day))
+                cash = float(risk_overlay_fn(benchmark_prices, day))
                 cash = max(0.0, min(0.99, cash))
             except Exception:
                 cash = 0.0

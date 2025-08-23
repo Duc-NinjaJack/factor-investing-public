@@ -24,7 +24,8 @@ backtest_windows:
     description: "Full period with adaptive liquidity weighting"
 
 # === ACTIVE CONFIGURATION ===
-active_window: "FULL_2016_2025"  # Extended to full historical period including pre-liquidity era
+# Shift active window to avoid early-period fundamentals gaps
+active_window: "LIQUID_2018_2025"
 
 # === INVESTMENT COMMITTEE HURDLES ===
 ic_hurdles:
@@ -92,6 +93,11 @@ benchmark:
   primary: "VN_INDEX"
   secondary: "VNFIN_LEAD"      # Liquid-50 for microstructure comparison
 
+# === FUNDAMENTALS TIMING ===
+# Use fundamentals-aware rebalance anchors with reporting lag (days after quarter-end)
+fundamentals:
+  reporting_lag_days: 75
+
 # === OUTPUT & REPORTING ===
 output:
   save_factor_weights: true
@@ -99,3 +105,7 @@ output:
   save_cost_breakdown: true
   generate_tearsheet: true
   export_metrics_csv: true
+
+# === NORMALIZATION CONTROLS ===
+normalization:
+  min_sector_size: 5

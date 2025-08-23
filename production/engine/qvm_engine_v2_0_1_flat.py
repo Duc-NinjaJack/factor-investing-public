@@ -532,14 +532,17 @@ class QVMEngineV201Flat:
             # Get sector counts and determine methodology
             sector_counts = data.groupby(sector_column)[metric_column].count()
             
+            # Configurable threshold: default to 10 if not provided by runner/engine
+            min_sector_size = getattr(self, 'min_sector_size', 10)
+
             # INSTITUTIONAL THRESHOLD: Use sector-neutral unless sector is very small
             # This is the CORRECTED logic - sector-neutral is PRIMARY, not fallback
             use_sector_neutral = True
             for sector, count in sector_counts.items():
-                if count < 10:  # Institutional threshold for minimum sector size
-                    self.logger.info(f"Sector '{sector}' has only {count} tickers - may use cross-sectional fallback")
+                if count < min_sector_size:
+                    self.logger.info(f"Sector '{sector}' has only {count} tickers - may use cross-sectional fallback (min={min_sector_size})")
                     # Check if this is the only sector or if we have multiple small sectors
-                    if len(sector_counts) == 1 or (sector_counts < 10).all():
+                    if len(sector_counts) == 1 or (sector_counts < min_sector_size).all():
                         use_sector_neutral = False
                         break
             

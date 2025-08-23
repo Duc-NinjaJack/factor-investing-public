@@ -48,6 +48,7 @@ Dependencies:
 import pandas as pd
 import numpy as np
 import logging
+import time
 from sqlalchemy import text
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
@@ -338,30 +339,33 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             if not self.data_timing_config['validate_data_timing']:
                 return True  # Skip validation if disabled
             
-            # Get quarter end date
-            year = analysis_date.year
-            quarter = (analysis_date.month - 1) // 3 + 1
-            
-            # Calculate quarter end date
-            if quarter == 1:
-                quarter_end = pd.Timestamp(f"{year}-03-31")
-            elif quarter == 2:
-                quarter_end = pd.Timestamp(f"{year}-06-30")
-            elif quarter == 3:
-                quarter_end = pd.Timestamp(f"{year}-09-30")
-            else:
-                quarter_end = pd.Timestamp(f"{year}-12-31")
-            
             # Check minimum data availability period
             min_availability_days = self.data_timing_config['min_data_availability_days']
             earnings_delay_days = self.data_timing_config['earnings_announcement_delay_days']
-            
-            # Calculate earliest possible data availability date
+
             if data_type == 'financial':
-                # Financial data needs earnings announcement delay
+                # Use the actually used lagged quarter for fundamentals
+                lagged_year, lagged_quarter = self._get_lagged_quarter_info(analysis_date)
+                quarter_end_dates = {
+                    1: pd.Timestamp(f"{lagged_year}-03-31"),
+                    2: pd.Timestamp(f"{lagged_year}-06-30"),
+                    3: pd.Timestamp(f"{lagged_year}-09-30"),
+                    4: pd.Timestamp(f"{lagged_year}-12-31"),
+                }
+                quarter_end = quarter_end_dates[lagged_quarter]
                 earliest_available = quarter_end + pd.Timedelta(days=earnings_delay_days)
             else:
-                # Market/price data available immediately after quarter end
+                # For market/price data, reference the analysis quarter end
+                year = analysis_date.year
+                quarter = (analysis_date.month - 1) // 3 + 1
+                if quarter == 1:
+                    quarter_end = pd.Timestamp(f"{year}-03-31")
+                elif quarter == 2:
+                    quarter_end = pd.Timestamp(f"{year}-06-30")
+                elif quarter == 3:
+                    quarter_end = pd.Timestamp(f"{year}-09-30")
+                else:
+                    quarter_end = pd.Timestamp(f"{year}-12-31")
                 earliest_available = quarter_end + pd.Timedelta(days=min_availability_days)
             
             # Check if analysis date is after earliest available date
@@ -489,6 +493,28 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             market_data = pd.read_sql(market_query, self.engine, params={
                 'analysis_date': analysis_date, 'tickers': tuple(eligible_tickers)
             })
+            
+            # Fallback: use last available on/before analysis_date if exact-day data is missing
+            if market_data.empty and eligible_tickers:
+                self.logger.warning(
+                    "FCF yield: market data not found on %s; using last available on/before",
+                    analysis_date.date(),
+                )
+                fallback_market = text("""
+                    WITH last_dates AS (
+                        SELECT ticker, MAX(trading_date) AS lastdate
+                        FROM vcsc_daily_data_complete
+                        WHERE ticker IN :tickers AND trading_date <= :analysis_date
+                        GROUP BY ticker
+                    )
+                    SELECT v.ticker, v.market_cap
+                    FROM vcsc_daily_data_complete v
+                    JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
+                    WHERE v.market_cap > 0
+                """)
+                market_data = pd.read_sql(fallback_market, self.engine, params={
+                    'analysis_date': analysis_date, 'tickers': tuple(eligible_tickers)
+                })
 
             # SMART FCF CALCULATION: Use actual Capex when available, fall back to CFI proxy
             fcf_yields = {}
@@ -739,8 +765,13 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             self.logger.info(f"📅 Data timing: Financial data from {lagged_year}Q{lagged_quarter}, Market data from {current_year}Q{current_quarter}")
 
             # 1. Data Ingestion with look-ahead bias fixes
+            t_factors_start = time.perf_counter()
+            t0 = time.perf_counter()
             fundamentals = self._get_fundamentals_with_timing_fixes(analysis_date, universe)
+            t_fundamentals_ms = (time.perf_counter() - t0) * 1000.0
+            t1 = time.perf_counter()
             market_data = self._get_market_data_with_timing_fixes(analysis_date, universe)
+            t_market_ms = (time.perf_counter() - t1) * 1000.0
 
             # FAIL FAST: Show exactly what's missing
             if fundamentals.empty:
@@ -765,14 +796,22 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 return {}
 
             # TIER 1 REFINEMENT #4: Cache sector mapping for performance and normalize labels
+            t2 = time.perf_counter()
             sector_map = self.get_sector_mapping().set_index('ticker')
             sector_map = normalize_sector_labels_221(sector_map.reset_index(), 'sector').set_index('ticker')
+            t_sector_ms = (time.perf_counter() - t2) * 1000.0
 
             # 2. Enhanced Factor Calculation (Traditional + New) with look-ahead bias fixes
             # Traditional factors from parent class (with timing fixes)
+            t_q0 = time.perf_counter()
             quality_factors = self._get_individual_quality_factors_fixed(data, analysis_date, sector_map)
+            t_quality_ms = (time.perf_counter() - t_q0) * 1000.0
+            t_v0 = time.perf_counter()
             value_factors = self._get_individual_value_factors_fixed(data, analysis_date, sector_map)
+            t_value_ms = (time.perf_counter() - t_v0) * 1000.0
+            t_m0 = time.perf_counter()
             momentum_factors = self._get_individual_momentum_factors_fixed(data, analysis_date, universe, sector_map)
+            t_momentum_ms = (time.perf_counter() - t_m0) * 1000.0
             
             # AGENT SMITH DEBUG: Log factor counts
             self.logger.info(f"Factor counts: Quality={len(quality_factors)}, Value={len(value_factors)}, Momentum={len(momentum_factors)}")
@@ -792,10 +831,16 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                     self.logger.warning(f"F-Score cache priming failed: {e}")
 
             # New v2.2.1 factors (also use cached sector map and timing fixes)
+            t_d0 = time.perf_counter()
             low_vol_factors = self._get_individual_low_vol_factors_fixed(analysis_date, universe, sector_map)
+            t_lowvol_ms = (time.perf_counter() - t_d0) * 1000.0
             # For F-Score and FCF Yield, if data originated from only one side, still pass available tickers
+            t_f0 = time.perf_counter()
             f_score_factors = self._get_individual_f_score_factors_fixed(data, analysis_date, sector_map)
+            t_fscore_ms = (time.perf_counter() - t_f0) * 1000.0
+            t_c0 = time.perf_counter()
             fcf_yield_factors = self._get_individual_fcf_yield_factors(data, analysis_date, sector_map)
+            t_fcf_ms = (time.perf_counter() - t_c0) * 1000.0
 
             self.logger.info(f"Individual factors calculated: {len(quality_factors)} quality, "
                            f"{len(value_factors)} value, {len(momentum_factors)} momentum, "
@@ -891,6 +936,27 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
 
             self.logger.info(f"SUCCESS: v2.2.1 Flat composite calculated for {len(results)} tickers.")
             self.logger.info("LOOK-AHEAD BIAS FIXES: All factor calculations use proper data timing")
+            # Store last timings for runner collection without changing return type
+            try:
+                elapsed_ms_factors = (time.perf_counter() - t_factors_start) * 1000.0
+                self._last_timings = {
+                    'analysis_date': pd.Timestamp(analysis_date),
+                    'elapsed_ms_factors': round(float(elapsed_ms_factors), 3),
+                    'elapsed_ms_quality': round(float(t_quality_ms), 3) if 't_quality_ms' in locals() else None,
+                    'elapsed_ms_value': round(float(t_value_ms), 3) if 't_value_ms' in locals() else None,
+                    'elapsed_ms_momentum': round(float(t_momentum_ms), 3) if 't_momentum_ms' in locals() else None,
+                    'elapsed_ms_lowvol': round(float(t_lowvol_ms), 3) if 't_lowvol_ms' in locals() else None,
+                    'elapsed_ms_fscore': round(float(t_fscore_ms), 3) if 't_fscore_ms' in locals() else None,
+                    'elapsed_ms_fcf': round(float(t_fcf_ms), 3) if 't_fcf_ms' in locals() else None,
+                    'elapsed_ms_fundamentals_load': round(float(t_fundamentals_ms), 3) if 't_fundamentals_ms' in locals() else None,
+                    'elapsed_ms_market_load': round(float(t_market_ms), 3) if 't_market_ms' in locals() else None,
+                    'elapsed_ms_sector_map': round(float(t_sector_ms), 3) if 't_sector_ms' in locals() else None,
+                }
+            except Exception:
+                # Never fail the pipeline due to telemetry issues
+                self._last_timings = {
+                    'analysis_date': pd.Timestamp(analysis_date),
+                }
             return results
 
         except Exception as e:
@@ -951,6 +1017,28 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
             market_data = pd.read_sql(query, self.engine, params={
                 'analysis_date': analysis_date, 'universe': tuple(universe)
             })
+            
+            # Fallback: if no exact-day rows, use last available on/before analysis_date
+            if market_data.empty and universe:
+                self.logger.warning(
+                    "Market data not found on %s; using last available on/before",
+                    analysis_date.date(),
+                )
+                fallback_query = text("""
+                    WITH last_dates AS (
+                        SELECT ticker, MAX(trading_date) AS lastdate
+                        FROM vcsc_daily_data_complete
+                        WHERE ticker IN :universe AND trading_date <= :analysis_date
+                        GROUP BY ticker
+                    )
+                    SELECT v.ticker, v.market_cap, v.close_price
+                    FROM vcsc_daily_data_complete v
+                    JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
+                    WHERE v.market_cap > 0
+                """)
+                market_data = pd.read_sql(fallback_query, self.engine, params={
+                    'analysis_date': analysis_date, 'universe': tuple(universe)
+                })
             
             self.logger.info(f"📊 Loaded current market data: {len(market_data)} records from {current_year}Q{current_quarter}")
             return market_data
@@ -1190,6 +1278,28 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 'analysis_date': analysis_date, 'tickers': tuple(data['ticker'].unique())
             })
             
+            # Fallback: if no exact-day rows, use last available on/before analysis_date
+            if market_data.empty:
+                self.logger.warning(
+                    "Value factors: market data not found on %s; using last available on/before",
+                    analysis_date.date(),
+                )
+                fallback_market = text("""
+                    WITH last_dates AS (
+                        SELECT ticker, MAX(trading_date) AS lastdate
+                        FROM vcsc_daily_data_complete
+                        WHERE ticker IN :tickers AND trading_date <= :analysis_date
+                        GROUP BY ticker
+                    )
+                    SELECT v.ticker, v.market_cap
+                    FROM vcsc_daily_data_complete v
+                    JOIN last_dates d ON v.ticker = d.ticker AND v.trading_date = d.lastdate
+                    WHERE v.market_cap > 0
+                """)
+                market_data = pd.read_sql(fallback_market, self.engine, params={
+                    'analysis_date': analysis_date, 'tickers': tuple(data['ticker'].unique())
+                })
+
             if financial_data.empty or market_data.empty:
                 return {}
             
@@ -1249,77 +1359,71 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
         LOOK-AHEAD BIAS FIX: Uses proper price data timing with contrarian/positive logic.
         """
         try:
-            self.logger.info("Calculating momentum factors with look-ahead bias fixes...")
+            self.logger.info("Calculating momentum factors with look-ahead bias fixes (vectorized)...")
             
-            # Calculate momentum for different periods
-            momentum_periods = [1, 3, 6, 12]  # 1M, 3M, 6M, 12M
-            momentum_factors = {}
-            
+            # Single bulk query for all required data (up to 12M lookback)
+            earliest_start = analysis_date - pd.DateOffset(months=12)
+            query = text("""
+                SELECT ticker, close_price, trading_date
+                FROM vcsc_daily_data_complete
+                WHERE ticker IN :tickers 
+                AND trading_date BETWEEN :start_date AND :analysis_date
+                ORDER BY ticker, trading_date
+            """)
+            prices = pd.read_sql(query, self.engine, params={
+                'tickers': tuple(universe), 'start_date': earliest_start, 'analysis_date': analysis_date
+            })
+            if prices.empty:
+                return {}
+            prices['trading_date'] = pd.to_datetime(prices['trading_date'])
+
+            momentum_periods = [1, 3, 6, 12]
+            momentum_factors: Dict[str, pd.Series] = {}
+
             for months in momentum_periods:
-                # Calculate start date for momentum
                 start_date = analysis_date - pd.DateOffset(months=months)
-                
-                # Query price data for momentum calculation
-                query = text("""
-                    SELECT ticker, close_price, trading_date
-                    FROM vcsc_daily_data_complete
-                    WHERE ticker IN :tickers 
-                    AND trading_date BETWEEN :start_date AND :analysis_date
-                    ORDER BY ticker, trading_date
-                """)
-                
-                price_data = pd.read_sql(query, self.engine, params={
-                    'tickers': tuple(universe), 'start_date': start_date, 'analysis_date': analysis_date
-                })
-                
-                if price_data.empty:
+
+                # First price on or after start_date per ticker
+                start_slice = prices[prices['trading_date'] >= start_date]
+                start_first = (
+                    start_slice.sort_values(['ticker', 'trading_date'])
+                    .groupby('ticker', as_index=False).first()[['ticker', 'close_price']]
+                    .rename(columns={'close_price': 'start_price'})
+                )
+                # Last price on or before analysis_date per ticker
+                end_slice = prices[prices['trading_date'] <= analysis_date]
+                end_last = (
+                    end_slice.sort_values(['ticker', 'trading_date'])
+                    .groupby('ticker', as_index=False).last()[['ticker', 'close_price']]
+                    .rename(columns={'close_price': 'end_price'})
+                )
+                joined = pd.merge(start_first, end_last, on='ticker', how='inner')
+                joined = joined[(joined['start_price'] > 0) & (joined['end_price'] > 0)]
+                if joined.empty:
                     continue
-                
-                # Calculate momentum for each ticker
-                momentum_scores = {}
-                
-                for ticker in universe:
-                    ticker_prices = price_data[price_data['ticker'] == ticker]['close_price']
-                    
-                    if len(ticker_prices) >= 5:  # Need at least 5 data points
-                        start_price = ticker_prices.iloc[0]
-                        end_price = ticker_prices.iloc[-1]
-                        
-                        if start_price > 0:
-                            momentum = (end_price - start_price) / start_price
-                            
-                            # Apply contrarian/positive logic based on months
-                            if months in [1, 12]:  # CONTRARIAN (negative momentum is better)
-                                # Convert to score where negative momentum gets higher score
-                                momentum_score = max(0.0, min(1.0, (1.0 - momentum) / 2.0))
-                            else:  # POSITIVE (3M, 6M) - positive momentum is better
-                                # Convert to score where positive momentum gets higher score
-                                momentum_score = max(0.0, min(1.0, (momentum + 1.0) / 2.0))
-                            
-                            momentum_scores[ticker] = momentum_score
-                
-                if momentum_scores:
-                    # Create sector-neutral z-scores
-                    momentum_df = pd.DataFrame([
-                        {'ticker': ticker, f'momentum_{months}m': score, 'sector': sector_map.loc[ticker, 'sector']}
-                        for ticker, score in momentum_scores.items()
-                        if ticker in sector_map.index
-                    ])
-                    
-                    if not momentum_df.empty:
-                        # Apply sector-neutral normalization
-                        z_scores = self.calculate_sector_neutral_zscore(momentum_df, f'momentum_{months}m', 'sector')
-                        
-                        # Create Series indexed by ticker
-                        factor_series = pd.Series(
-                            z_scores.values,
-                            index=momentum_df['ticker'],
-                            name=f'momentum_{months}m_z'
-                        )
-                        
-                        momentum_factors[f'momentum_{months}m_z'] = factor_series
-            
-            self.logger.info(f"✅ Momentum factors calculated for {len(momentum_factors)} periods")
+                joined['mom_return'] = (joined['end_price'] / joined['start_price']) - 1.0
+
+                # Map to score domain consistent with prior logic
+                if months in [1, 12]:
+                    # Contrarian: lower return -> higher score
+                    joined[f'momentum_{months}m'] = (1.0 - joined['mom_return']).clip(lower=-1e9, upper=1e9) / 2.0
+                else:
+                    # Positive momentum
+                    joined[f'momentum_{months}m'] = (joined['mom_return'] + 1.0).clip(lower=-1e9, upper=1e9) / 2.0
+                # Clamp to [0,1]
+                joined[f'momentum_{months}m'] = joined[f'momentum_{months}m'].clip(0.0, 1.0)
+
+                # Sector-neutral z-score
+                mom_df = joined[['ticker', f'momentum_{months}m']].merge(
+                    sector_map.reset_index()[['ticker', 'sector']], on='ticker', how='inner'
+                )
+                if mom_df.empty:
+                    continue
+                z = self.calculate_sector_neutral_zscore(mom_df, f'momentum_{months}m', 'sector')
+                factor_series = pd.Series(z.values, index=mom_df['ticker'], name=f'momentum_{months}m_z')
+                momentum_factors[f'momentum_{months}m_z'] = factor_series
+
+            self.logger.info(f"✅ Momentum factors calculated (vectorized) for {len(momentum_factors)} periods")
             return momentum_factors
             
         except Exception as e:
@@ -1333,12 +1437,10 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
         LOOK-AHEAD BIAS FIX: Uses proper price data timing for volatility calculation.
         """
         try:
-            self.logger.info("Calculating low volatility factors with look-ahead bias fixes...")
+            self.logger.info("Calculating low volatility factors with look-ahead bias fixes (vectorized)...")
             
-            # Calculate start date for volatility (6 months of data)
+            # 6 months lookback window
             start_date = analysis_date - pd.DateOffset(months=6)
-            
-            # Query price data for volatility calculation
             query = text("""
                 SELECT ticker, close_price, trading_date
                 FROM vcsc_daily_data_complete
@@ -1346,58 +1448,32 @@ class QVMEngineV221Flat(QVMEngineV201Flat):
                 AND trading_date BETWEEN :start_date AND :analysis_date
                 ORDER BY ticker, trading_date
             """)
-            
-            price_data = pd.read_sql(query, self.engine, params={
+            prices = pd.read_sql(query, self.engine, params={
                 'tickers': tuple(universe), 'start_date': start_date, 'analysis_date': analysis_date
             })
-            
-            if price_data.empty:
+            if prices.empty:
                 return {}
-            
-            # Calculate volatility for each ticker
-            volatility_scores = {}
-            
-            for ticker in universe:
-                ticker_prices = price_data[price_data['ticker'] == ticker]['close_price']
-                
-                if len(ticker_prices) >= 10:  # Need at least 10 data points
-                    # Calculate daily returns
-                    returns = ticker_prices.pct_change().dropna()
-                    
-                    if len(returns) >= 5:
-                        # Calculate annualized volatility
-                        daily_volatility = returns.std()
-                        annualized_volatility = daily_volatility * np.sqrt(252)  # 252 trading days
-                        
-                        # Convert to score where lower volatility gets higher score
-                        # Assume volatility range of 0% to 100% annualized
-                        volatility_score = max(0.0, min(1.0, (1.0 - annualized_volatility)))
-                        
-                        volatility_scores[ticker] = volatility_score
-            
-            if volatility_scores:
-                # Create sector-neutral z-scores
-                volatility_df = pd.DataFrame([
-                    {'ticker': ticker, 'low_volatility': score, 'sector': sector_map.loc[ticker, 'sector']}
-                    for ticker, score in volatility_scores.items()
-                    if ticker in sector_map.index
-                ])
-                
-                if not volatility_df.empty:
-                    # Apply sector-neutral normalization
-                    z_scores = self.calculate_sector_neutral_zscore(volatility_df, 'low_volatility', 'sector')
-                    
-                    # Create Series indexed by ticker
-                    factor_series = pd.Series(
-                        z_scores.values,
-                        index=volatility_df['ticker'],
-                        name='low_volatility_z'
-                    )
-                    
-                    self.logger.info(f"✅ Low volatility factors calculated for {len(factor_series)} tickers")
-                    return {'low_volatility_z': factor_series}
-            
-            return {}
+            prices = prices.sort_values(['ticker', 'trading_date'])
+
+            # Vectorized daily returns per ticker
+            prices['ret'] = prices.groupby('ticker')['close_price'].pct_change()
+            # Compute per-ticker daily volatility then annualize
+            vol = prices.dropna(subset=['ret']).groupby('ticker')['ret'].std()
+            if vol.empty:
+                return {}
+            annualized = vol * np.sqrt(252.0)
+            # Map to score domain: lower vol -> higher score, clamp to [0,1]
+            low_vol_score = (1.0 - annualized).clip(lower=0.0, upper=1.0)
+            vol_df = low_vol_score.rename('low_volatility').reset_index()
+
+            # Sector-neutral z-score
+            vol_df = vol_df.merge(sector_map.reset_index()[['ticker', 'sector']], on='ticker', how='inner')
+            if vol_df.empty:
+                return {}
+            z = self.calculate_sector_neutral_zscore(vol_df, 'low_volatility', 'sector')
+            factor_series = pd.Series(z.values, index=vol_df['ticker'], name='low_volatility_z')
+            self.logger.info(f"✅ Low volatility factors calculated (vectorized) for {len(factor_series)} tickers")
+            return {'low_volatility_z': factor_series}
             
         except Exception as e:
             self.logger.error(f"Failed to calculate low volatility factors with timing fixes: {e}")

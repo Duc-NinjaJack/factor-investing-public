@@ -73,3 +73,29 @@ def volatility_targeting(
     return managed, exposure
 
 
+# New overlay: EWMA drawdown-based cash ramp
+def ewma_drawdown_cash_allocation(
+    benchmark_prices: pd.Series,
+    current_date: pd.Timestamp,
+    halflife: int = 20,
+    max_cash: float = 0.9,
+) -> float:
+    """
+    EWMA drawdown where the peak is tracked via EWMA to dampen noise.
+    Returns cash allocation in [0, max_cash].
+    """
+    if benchmark_prices is None or benchmark_prices.empty:
+        return 0.0
+    hist = benchmark_prices.loc[:current_date]
+    if hist.empty:
+        return 0.0
+    # EWMA peak approximation: use EWMA of prices and treat deviation from rolling max of ewma
+    ewma = hist.ewm(halflife=halflife, adjust=False).mean()
+    if ewma.empty or ewma.iloc[-1] <= 0:
+        return 0.0
+    running_peak = ewma.cummax()
+    dd = float((running_peak.iloc[-1] - ewma.iloc[-1]) / running_peak.iloc[-1]) if running_peak.iloc[-1] > 0 else 0.0
+    # Linear ramp up to max_cash at 40% EWMA DD
+    cash = max(0.0, min(max_cash, dd / 0.40 * max_cash))
+    return float(cash)
+

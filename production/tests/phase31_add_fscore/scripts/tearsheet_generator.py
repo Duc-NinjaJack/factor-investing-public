@@ -62,9 +62,19 @@ def calculate_performance_metrics(returns, benchmark, periods_per_year: int = 25
         returns = returns.clip(-0.99, 2.0)
         print("   Returns clipped to reasonable range (-99% to +200%)")
     
-    # Ensure both series have the same index type and length
-    if len(returns) != len(benchmark):
-        # Truncate to the shorter length
+    # Align on date intersection if both have DatetimeIndex; else fall back to length-based trim
+    try:
+        if isinstance(returns.index, pd.DatetimeIndex) and isinstance(benchmark.index, pd.DatetimeIndex):
+            common_index = returns.index.intersection(benchmark.index)
+            returns = returns.loc[common_index]
+            benchmark = benchmark.loc[common_index]
+        else:
+            if len(returns) != len(benchmark):
+                min_length = min(len(returns), len(benchmark))
+                returns = returns.iloc[:min_length]
+                benchmark = benchmark.iloc[:min_length]
+    except Exception:
+        # Last-resort fallback
         min_length = min(len(returns), len(benchmark))
         returns = returns.iloc[:min_length]
         benchmark = benchmark.iloc[:min_length]
@@ -299,43 +309,17 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
     strategy_returns = strategy_returns.copy()
     benchmark_returns = benchmark_returns.copy()
     
-    # COMPLETELY REWRITTEN: Safe alignment logic that handles all index types
+    # Safe alignment logic that handles all index types
     try:
-        # Find the first non-zero return
-        non_zero_mask = strategy_returns.ne(0)
-        if not non_zero_mask.any():
-            print("❌ No valid strategy returns data available")
-            return
-        
-        # Find first non-zero index position
-        first_non_zero_pos = non_zero_mask.idxmax()
-        
-        # Handle different index types safely
         if isinstance(strategy_returns.index, pd.DatetimeIndex) and isinstance(benchmark_returns.index, pd.DatetimeIndex):
-            # Both have datetime indices - use datetime slicing
-            try:
-                aligned_strategy_returns = strategy_returns.loc[first_non_zero_pos:]
-                aligned_benchmark_returns = benchmark_returns.loc[first_non_zero_pos:]
-            except Exception:
-                # Fallback to integer-based slicing
-                try:
-                    first_idx = strategy_returns.index.get_loc(first_non_zero_pos)
-                    aligned_strategy_returns = strategy_returns.iloc[first_idx:]
-                    aligned_benchmark_returns = benchmark_returns.iloc[first_idx:]
-                except Exception:
-                    # Ultimate fallback: use simple integer-based alignment
-                    aligned_strategy_returns = strategy_returns
-                    aligned_benchmark_returns = benchmark_returns
+            common_index = strategy_returns.index.intersection(benchmark_returns.index)
+            aligned_strategy_returns = strategy_returns.loc[common_index]
+            aligned_benchmark_returns = benchmark_returns.loc[common_index]
         else:
-            # Use integer-based indexing
-            try:
-                first_idx = strategy_returns.index.get_loc(first_non_zero_pos)
-                aligned_strategy_returns = strategy_returns.iloc[first_idx:]
-                aligned_benchmark_returns = benchmark_returns.iloc[first_idx:]
-            except Exception:
-                # Ultimate fallback: use simple integer-based alignment
-                aligned_strategy_returns = strategy_returns
-                aligned_benchmark_returns = benchmark_returns
+            # integer/other index fallback: trim to same length
+            min_len = min(len(strategy_returns), len(benchmark_returns))
+            aligned_strategy_returns = strategy_returns.iloc[:min_len]
+            aligned_benchmark_returns = benchmark_returns.iloc[:min_len]
                 
     except Exception as e:
         print(f"⚠️ WARNING: Alignment failed with error: {e}")
@@ -464,8 +448,9 @@ def generate_comprehensive_tearsheet(strategy_returns: pd.Series, benchmark_retu
 
     # 4. Annual Returns
     ax4 = fig.add_subplot(gs[3, 0])
-    strat_annual = aligned_strategy_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
-    bench_annual = aligned_benchmark_returns.resample('Y').apply(lambda x: (1+x).prod()-1) * 100
+    # Use pandas year-end alias 'A' instead of deprecated/invalid 'YE'
+    strat_annual = aligned_strategy_returns.resample('A').apply(lambda x: (1+x).prod()-1) * 100
+    bench_annual = aligned_benchmark_returns.resample('A').apply(lambda x: (1+x).prod()-1) * 100
     pd.DataFrame({'Strategy': strat_annual, 'Benchmark': bench_annual}).plot(kind='bar', ax=ax4, color=['#16A085', '#34495E'])
     ax4.set_xticks(range(len(strat_annual)))
     ax4.set_xticklabels([d.strftime('%Y') for d in strat_annual.index], rotation=45, ha='right')

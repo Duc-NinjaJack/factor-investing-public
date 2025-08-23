@@ -234,7 +234,7 @@ def compute_bank_vectorized_221(engine, tickers: List[str], lagged_year: int, la
                 """
                 SELECT ticker,
                        COALESCE(TotalEquity, OwnersEquity) AS ShareholdersEquity,
-                       COALESCE(CustomerDeposits, TotalLiabilities, 0) AS CustomerDeposits
+                       COALESCE(TotalLiabilities, CurrentLiabilities, 0) AS CustomerDeposits
                 FROM v_comprehensive_fundamental_items
                 WHERE year=:y AND quarter=:q AND ticker IN :tickers
                 """

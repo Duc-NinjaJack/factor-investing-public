@@ -17,6 +17,10 @@ import os
 import yaml
 from typing import Dict, Optional
 
+from production.tests.phase31_add_fscore.scripts.validation_manager import (
+    validate_backtest_config,
+)
+
 
 def validate_version_compatibility(strategy_config: Dict, backtest_config: Dict) -> bool:
     """
@@ -45,7 +49,11 @@ def validate_version_compatibility(strategy_config: Dict, backtest_config: Dict)
         if missing_pillars:
             print(f"⚠️ Warning: Missing factor weights for pillars: {missing_pillars}")
             print(f"   Please add these missing pillars to your configuration file")
-            print(f"   Example: factor_weights: {pillar}: 0.25 for each missing pillar")
+            print("   Example: factor_weights:")
+            print("     quality: 0.25")
+            print("     value: 0.25")
+            print("     momentum: 0.25")
+            print("     defensive: 0.25")
         
         # Check backtest config compatibility
         active_window = backtest_config.get('active_window', 'unknown')
@@ -115,6 +123,20 @@ def load_backtest_config(config_path: str = None) -> Dict:
                 
                 # Merge with strategy-compatible settings
                 merged_config = merge_backtest_with_strategy_config(config)
+                # Schema validation and normalization
+                try:
+                    # Use a no-op logger substitute; runner passes a real logger
+                    class _NullLogger:
+                        def debug(self, *a, **k):
+                            pass
+                        def info(self, *a, **k):
+                            pass
+                        def error(self, *a, **k):
+                            pass
+                    merged_config = validate_backtest_config(merged_config, _NullLogger())
+                except Exception:
+                    # If validation fails here, defer to runner to raise with context
+                    pass
                 return merged_config
                 
             except yaml.YAMLError as e:
@@ -134,10 +156,12 @@ def merge_backtest_with_strategy_config(backtest_config: Dict) -> Dict:
     """
     print("🔄 Merging backtest configuration with strategy settings...")
     
-    # Override portfolio size to match strategy requirement (20 stocks)
+    # Do not override universe size here; honor YAML `universe.top_n_stocks`.
+    # Historical note: this previously forced 20 stocks, which starved sector samples.
+    # If needed, control portfolio sizing in the strategy config, not here.
     if 'universe' in backtest_config:
-        backtest_config['universe']['top_n_stocks'] = 20
-        print("✅ Portfolio size updated to 20 stocks")
+        # No-op: ensure key exists but do not mutate provided value
+        _ = backtest_config['universe'].get('top_n_stocks', None)
     
     # Ensure risk management settings are compatible
     if 'risk_overlay' in backtest_config:
